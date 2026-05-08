@@ -2,19 +2,25 @@ import torch
 import numpy as np
 import os
 import sys
+import json
 import pathlib
 from typing import List, Dict, Optional
 from uuid import uuid4
 from label_studio_ml.model import LabelStudioMLBase
 from label_studio_ml.response import ModelResponse
 from label_studio_sdk.converter import brush
-from PIL import Image
+from label_studio_sdk._extensions.label_studio_tools.core.utils.io import get_local_path
+from PIL import Image, ImageDraw
 
 ROOT_DIR = os.getcwd()
 sys.path.insert(0, ROOT_DIR)
 from sam2.build_sam import build_sam2
 from sam2.sam2_image_predictor import SAM2ImagePredictor
 
+from seg_cropper import CropMapper, Box
+
+import logging
+logger=logging.getLogger(__name__)
 
 DEVICE = os.getenv('DEVICE', 'cuda')
 MODEL_CONFIG = os.getenv('MODEL_CONFIG', 'configs/sam2.1/sam2.1_hiera_l.yaml')
@@ -37,12 +43,26 @@ sam2_model = build_sam2(MODEL_CONFIG, sam2_checkpoint, device=DEVICE)
 
 predictor = SAM2ImagePredictor(sam2_model)
 
+logger.info('MODEL BUILD_SAM2')
 
-class NewModel(LabelStudioMLBase):
+
+def box_xwyh2xyxy(box:Box) -> Box:
+    x,w,y,h = box
+    return x,y,x+w,y+h
+
+
+class SAM2_BigImg(LabelStudioMLBase):
     """Custom ML Backend model
     """
 
+    def setup(self):
+        """Configure any parameters of your model here
+        """
+        logging.info('SAM2_BigImg setup')
+        self.set("model_version", "0.0.1")
+
     def get_results(self, masks, probs, width, height, from_name, to_name, label):
+        logger.info('MODEL get_results')
         results = []
         total_prob = 0
         for mask, prob in zip(masks, probs):
@@ -75,14 +95,49 @@ class NewModel(LabelStudioMLBase):
             'score': total_prob / max(len(results), 1)
         }]
 
-    def set_image(self, image_url, task_id):
-        image_path = self.get_local_path(image_url, task_id=task_id)
-        image = Image.open(image_path)
-        image = np.array(image.convert("RGB"))
-        predictor.set_image(image)
 
     def _sam_predict(self, img_url, point_coords=None, point_labels=None, input_box=None, task=None):
-        self.set_image(img_url, task.get('id'))
+        logger.info('MODEL _sam_predict')
+        
+        cache_dir = '/cache'
+        if not os.path.isdir(cache_dir): os.mkdir(cache_dir)
+        image_path = get_local_path(img_url, task_id=task.get('id'), cache_dir=cache_dir)
+        
+        image_path_cache = os.path.join('/cache',os.path.basename(image_path))
+        image_path_cache_cropped = image_path_cache.replace('.jpg','.crop.jpg')
+        mask_path_cache = image_path_cache.replace('.jpg','.mask.npy')
+        mask_path_cache_cropped = image_path_cache.replace('.jpg','.mask.crop.npy')
+        
+        image = Image.open(image_path).convert("RGB")
+        
+        image2 = image.copy()
+        draw2 = ImageDraw.Draw(image2)
+        if input_box:
+            draw2.rectangle(input_box, outline='red', width=5)
+            image2.save(image_path_cache.replace('.jpg','.bbox.jpg'))
+        
+        logger.debug(f'extra_params: {self.extra_params} ({type(self.extra_params)})')
+            
+        cropper = CropMapper(image, **self.extra_params)
+        if input_box:
+            img = cropper.crop(box=input_box)
+            img2 = img.copy()
+            input_box = (input_box[0] - cropper.offx,
+                         input_box[1] - cropper.offy,
+                         input_box[2] - cropper.offx,
+                         input_box[3] - cropper.offy)
+            logger.debug(f'offset_box: {input_box}')
+            draw1 = ImageDraw.Draw(img2)
+            draw1.rectangle(input_box, outline='red', width=5)
+            img2.save(image_path_cache_cropped.replace('.crop.','.crop.bbox.'))
+        else:
+            logger.info(point_coords)
+            img = cropper.crop(point_coords)  # todo check these dont neeed to be inverse
+        img.save(image_path_cache_cropped)
+        
+        img = np.array(img)
+        predictor.set_image(img)
+        
         point_coords = np.array(point_coords, dtype=np.float32) if point_coords else None
         point_labels = np.array(point_labels, dtype=np.float32) if point_labels else None
         input_box = np.array(input_box, dtype=np.float32) if input_box else None
@@ -93,12 +148,17 @@ class NewModel(LabelStudioMLBase):
             box=input_box,
             multimask_output=True
         )
-        sorted_ind = np.argsort(scores)[::-1]
-        masks = masks[sorted_ind]
-        scores = scores[sorted_ind]
-        mask = masks[0, :, :].astype(np.uint8)
-        prob = float(scores[0])
         # logits = logits[sorted_ind]
+        sorted_ind = np.argsort(scores)[::-1]
+        scores = scores[sorted_ind]
+        prob = float(scores[0])
+        masks = masks[sorted_ind]
+        mask_cropped = masks[0, :, :].astype(np.uint8)
+        #np.save(mask_path_cache_cropped, mask_cropped)
+        Image.fromarray(mask_cropped * 255).save(mask_path_cache_cropped.replace('.npy','.jpg'))
+        mask = cropper.mask_crop_to_full(mask_cropped)
+        #np.save(mask_path_cache, mask)
+        Image.fromarray(mask * 255).save(mask_path_cache.replace('.npy','.jpg'))
         return {
             'masks': [mask],
             'probs': [prob]
@@ -107,7 +167,7 @@ class NewModel(LabelStudioMLBase):
 
     def predict(self, tasks: List[Dict], context: Optional[Dict] = None, **kwargs) -> ModelResponse:
         """ Returns the predicted mask for a smart keypoint that has been placed."""
-
+        logger.info(f'MODEL predict(tasks={tasks}, context={context})')
         from_name, to_name, value = self.get_first_tag_occurence('BrushLabels', 'Image')
 
         if not context or not context.get('result'):

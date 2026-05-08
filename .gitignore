@@ -1,0 +1,9 @@
+# Development
+__pycache__
+data/
+
+# Imagery
+*.jpg
+
+# IDK
+sam2_holding/

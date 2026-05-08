@@ -16,24 +16,43 @@ image: "/guide/ml_tutorials/sam2-images.png"
 ---
 -->
 
-# Using SAM2 with Label Studio for Image Annotation
+# SAM2BigImg
 
-Segment Anything 2, or SAM 2, is a model released by Meta in July 2024. An update to the original Segment Anything Model, 
-SAM 2 provides even better object segmentation for both images and video. In this guide, we'll show you how to use 
-SAM 2 for better image labeling with label studio. 
+This is a modification of the [Labelstudio SAM2 ml-backend](https://github.com/HumanSignal/label-studio-ml-backend/tree/master/label_studio_ml/examples/segment_anything_2_image). It can be used to interactively add mask (brush) annotations on Labelstudio. 
 
-Click on the image below to watch our ML Evangelist Micaela Kaplan explain how to link SAM 2 to your Label Studio Project.
-You'll need to follow the instructions below to stand up an instance of SAM2 before you can link your model! 
+This fork allows for the creation of masks for small objects within a very large input image.
+The when an image is received by the ml-endpoint, an area around the Labelstudio annotator's point/bounding-box prompt is cropped from the original image. The SAM2 mask is generated using the crop, and the resulting mask's coordinates are then remapped to the original image's coordinates and returned to Labelstudio. 
+Without this, masks for small objects in large scenes loose definition, since SAM2 resizes input images to WxH resolution. With this method, mask resolution is preserved. 
 
-[![Connecting SAM2 Model to Label Studio for Image Annotation ](https://img.youtube.com/vi/FTg8P8z4RgY/0.jpg)](https://www.youtube.com/watch?v=FTg8P8z4RgY)
+## TODOs
+- customize crop area (pixel size, fraction-increase of input bbox)
+- mask cleanup options like single-mask, fill gaps, grow/smooth edges
+- allow multiple labelstudio instances to use endpoint
+- Labelstudio Host, API Key, host-port, target GPU as .env variables.
+- easy endpoint testing from within project but outside running container
 
-## Before you begin
+## Configuration
 
-Before you begin, you must install the [Label Studio ML backend](https://github.com/HumanSignal/label-studio-ml-backend?tab=readme-ov-file#quickstart). 
+In `compose.yml`, update container name to avoid collisions with other ML-Backends and provide your LABEL_STUDIO_URL and LABEL_STUDIO_API_KEY (legacy tokens only).
 
-This tutorial uses the [`segment_anything_2_image` example](https://github.com/HumanSignal/label-studio-ml-backend/tree/master/label_studio_ml/examples/segment_anything_2_image). 
+## Installation
+```
+docker compose build
+docker compose up -d
+```
 
-Note that as of 8/1/2024, SAM2 only runs on GPU.
+## Initial Project Setup Notes
+
+```
+mkdir SAM2BigImg && cd SAM2BigImg
+git init
+git remote add upstream https://github.com/HumanSignal/label-studio-ml-backend.git
+git fetch upstream master
+git archive upstream/master label_studio_ml/examples/segment_anything_2_image | tar -x --strip-components=3
+git add -A && git commit -m "init sam2 ml-backend"
+```
+Then update `model.py`, incl. renaming for `class NewModel` to `class SAM2_BigImg` and subsequent changes in `_wsgi.py`. 
+
 
 ## Labeling configuration
 
@@ -121,42 +140,6 @@ This means all three control tags should be represented in your labeling configu
 </View>
 ```
 
-## Running from source
-
-1. To run the ML backend without Docker, you have to clone the repository and install all dependencies using pip:
-
-```bash
-git clone https://github.com/HumanSignal/label-studio-ml-backend.git
-cd label-studio-ml-backend
-pip install -e .
-cd label_studio_ml/examples/segment_anything_2_image
-pip install -r requirements.txt
-```
-
-2. Download [`segment-anything-2` repo](https://github.com/facebookresearch/sam2) into the root directory. Install SegmentAnything model and download checkpoints using [the official Meta documentation](https://github.com/facebookresearch/sam2?tab=readme-ov-file#installation)
-You should now have the following folder structure: 
-
-
-    | root directory 
-        | label-studio-ml-backend 
-            | label-studio-ml
-                | examples 
-                    | segment_anything_2_image
-        | sam2
-            | sam2
-            | checkpoints
-
-
-3. Then you can start the ML backend on the default port `9090`:
-
-```bash
-cd ~/sam2
-label-studio-ml start ../label-studio-ml-backend/label_studio_ml/examples/segment_anything_2_image
-```
-
-Due to breaking changes from Meta [HERE](https://github.com/facebookresearch/sam2/blob/c2ec8e14a185632b0a5d8b161928ceb50197eddc/sam2/build_sam.py#L20), it is CRUCIAL that you run this command from the sam2 directory at your root directory. 
-
-4. Connect running ML backend server to Label Studio: go to your project `Settings -> Machine Learning -> Add Model` and specify `http://localhost:9090` as a URL. Read more in the official [Label Studio documentation](https://labelstud.io/guide/ml#Connect-the-model-to-Label-Studio).
 
 ## Running with Docker
 
@@ -189,7 +172,3 @@ The following common parameters are available:
 - `LOG_LEVEL` - set the log level for the model server
 - `WORKERS` - specify the number of workers for the model server
 - `THREADS` - specify the number of threads for the model server
-
-## Customization
-
-The ML backend can be customized by adding your own models and logic inside the `./segment_anything_2` directory. 

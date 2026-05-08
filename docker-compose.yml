@@ -1,22 +1,20 @@
-version: "3.8"
 
 services:
   ml-backend:
-    container_name: ml-backend
+    container_name: SAM2BigImg
     image: humansignal/ml-backend:v0
     build:
       context: .
       args:
-        TEST_ENV: ${TEST_ENV}
+        TEST_ENV: False
 
-#    deploy:
-#      resources:
-#        reservations:
-#          devices:
-#            - driver: nvidia
-#              count: 1
-#              capabilities: [ gpu ]
-
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              device_ids: ['3']
+              capabilities: [ gpu ]
 
     environment:
       # specify these parameters if you want to use basic auth for the model server
@@ -33,19 +31,17 @@ services:
       - MODEL_DIR=/data/models
       # specify device
       - DEVICE=cuda  # or 'cpu' (coming soon)
-      # SAM2 model config
+      # SAM2 model config and checkpoint
       - MODEL_CONFIG=configs/sam2.1/sam2.1_hiera_l.yaml
-      # SAM2 checkpoint
       - MODEL_CHECKPOINT=sam2.1_hiera_large.pt
 
-      # Specify the Label Studio URL and API key to access
-      # uploaded, local storage and cloud storage files.
-      # Do not use 'localhost' as it does not work within Docker containers.
-      # Use prefix 'http://' or 'https://' for the URL always.
-      # Determine the actual IP using 'ifconfig' (Linux/Mac) or 'ipconfig' (Windows).
-      - LABEL_STUDIO_URL=
-      - LABEL_STUDIO_API_KEY=
+      # Specify the Label Studio URL and API key to access uploaded, local storage and cloud storage files.
+      - LABEL_STUDIO_URL=https://ichthyolith.whoi.edu
+      - LABEL_STUDIO_API_KEY=b7fc46b3c2c391dd81411010459e8df9feb7b95a
+     # - LABEL_STUDIO_URL=https://labelstudio.brick.whoi.edu
+     # - LABEL_STUDIO_API_KEY=36a67ff6c9fd0e0082f570162683e447ae2623fe
     ports:
-      - "9090:9090"
+      - "22202:9090"
     volumes:
       - "./data/server:/data"
+      - "./data/cache:/cache"

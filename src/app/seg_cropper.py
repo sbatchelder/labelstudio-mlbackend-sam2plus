@@ -123,6 +123,24 @@ class CropMapper:
         return self.img.crop((x0, y0, x0 + cw, y0 + ch))
 
 
+    def polygons_crop_to_full(self, polygons):
+        """Map crop-coordinate polygons to full-image pixel coordinates.
+
+        Counterpart of mask_crop_to_full() for vector geometry: shifts each
+        point by the crop offset and clamps it to the image bounds (a crop in
+        padding mode can extend past the edges).
+        """
+        W, H = self.img.size
+        x0, y0 = self.offset
+        mapped = []
+        for polygon in polygons:
+            mapped.append([
+                (min(max(x + x0, 0), W), min(max(y + y0, 0), H))
+                for x, y in polygon
+            ])
+        return mapped
+
+
     def mask_crop_to_full(self, mask_crop):
         W, H = self.img.size
         h, w = mask_crop.shape

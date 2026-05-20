@@ -18,6 +18,8 @@ from sam2.build_sam import build_sam2
 from sam2.sam2_image_predictor import SAM2ImagePredictor
 
 from seg_cropper import CropMapper, Box
+from postprocess import (filter_components, fill_holes, mask_to_polygons,
+                         draw_polygons, POLYGON_DEFAULTS)
 
 import logging
 logger=logging.getLogger(__name__)
@@ -51,6 +53,55 @@ def box_xwyh2xyxy(box:Box) -> Box:
     return x,y,x+w,y+h
 
 
+# extra_params keys forwarded to CropMapper; everything else is handled here.
+_CROPMAPPER_KEYS = {'crop_size', 'mode', 'padding_fill', 'allow_size_override',
+                    'oversize_padding'}
+
+
+def parse_extra_params(extra_params):
+    """Split extra_params into (crop_kwargs, polygon_cfg | None, postprocess_cfg).
+
+    - crop_kwargs    : kwargs forwarded to CropMapper
+    - polygon_cfg    : {'epsilon', 'max_points'} when as_polygon is set, else None
+    - postprocess_cfg: {'mask_size_threshold', 'fill_holes'}
+
+    Unknown top-level keys are warned about and ignored. With as_polygon the
+    postprocess defaults shift (size threshold 1, fill_holes true) and
+    fill_holes=false becomes an error (a polygon ring cannot encode a hole).
+    """
+    extra = dict(extra_params or {})
+    as_polygon = extra.pop('as_polygon', None)
+    postprocess = extra.pop('postprocess', None) or {}
+
+    crop_kwargs = {}
+    for key, value in extra.items():
+        if key in _CROPMAPPER_KEYS:
+            crop_kwargs[key] = value
+        else:
+            logger.warning(f'ignoring unknown extra_params key: {key!r}')
+
+    polygon_cfg = None
+    if as_polygon:
+        polygon_cfg = dict(POLYGON_DEFAULTS)
+        if isinstance(as_polygon, dict):
+            polygon_cfg.update(as_polygon)
+
+    # hyphenated keys (e.g. "fill-holes") are accepted and normalised.
+    postprocess = {k.replace('-', '_'): v for k, v in dict(postprocess).items()}
+    postprocess_cfg = {
+        'mask_size_threshold': 1.0 if polygon_cfg else 0.0,
+        'fill_holes': bool(polygon_cfg),
+    }
+    for key in postprocess_cfg:
+        if key in postprocess:
+            postprocess_cfg[key] = postprocess[key]
+
+    if polygon_cfg and not postprocess_cfg['fill_holes']:
+        raise ValueError('postprocess.fill_holes must be true when as_polygon '
+                          'is set (a polygon ring cannot represent a hole)')
+    return crop_kwargs, polygon_cfg, postprocess_cfg
+
+
 class SAM2_BigImg(LabelStudioMLBase):
     """Custom ML Backend model
     """
@@ -59,7 +110,7 @@ class SAM2_BigImg(LabelStudioMLBase):
         """Configure any parameters of your model here
         """
         logging.info('SAM2_BigImg setup')
-        self.set("model_version", "0.0.1")
+        self.set("model_version", "0.0.2")
 
     def get_results(self, masks, probs, width, height, from_name, to_name, label):
         logger.info('MODEL get_results')
@@ -96,29 +147,65 @@ class SAM2_BigImg(LabelStudioMLBase):
         }]
 
 
-    def _sam_predict(self, img_url, point_coords=None, point_labels=None, input_box=None, task=None):
+    def get_polygon_results(self, polygons, probs, width, height,
+                            from_name, to_name, label):
+        logger.info('MODEL get_polygon_results')
+        results = []
+        total_prob = 0
+        for polygon, prob in zip(polygons, probs):
+            label_id = str(uuid4())[:4]
+            # Label Studio stores polygon points as percentages of the image.
+            points = [[x / width * 100.0, y / height * 100.0] for x, y in polygon]
+            total_prob += prob
+            results.append({
+                'id': label_id,
+                'from_name': from_name,
+                'to_name': to_name,
+                'original_width': width,
+                'original_height': height,
+                'image_rotation': 0,
+                'value': {
+                    'points': points,
+                    'closed': True,
+                    'polygonlabels': [label],
+                },
+                'score': prob,
+                'type': 'polygonlabels',
+                'readonly': False
+            })
+
+        return [{
+            'result': results,
+            'model_version': self.get('model_version'),
+            'score': total_prob / max(len(results), 1)
+        }]
+
+
+    def _sam_predict(self, img_url, point_coords=None, point_labels=None, input_box=None,
+                     task=None, crop_kwargs=None, polygon_cfg=None, postprocess_cfg=None):
         logger.info('MODEL _sam_predict')
-        
+
         cache_dir = '/cache'
         if not os.path.isdir(cache_dir): os.mkdir(cache_dir)
         image_path = get_local_path(img_url, task_id=task.get('id'), cache_dir=cache_dir)
-        
+
         image_path_cache = os.path.join('/cache',os.path.basename(image_path))
         image_path_cache_cropped = image_path_cache.replace('.jpg','.crop.jpg')
         mask_path_cache = image_path_cache.replace('.jpg','.mask.npy')
         mask_path_cache_cropped = image_path_cache.replace('.jpg','.mask.crop.npy')
-        
+
         image = Image.open(image_path).convert("RGB")
-        
+
         image2 = image.copy()
         draw2 = ImageDraw.Draw(image2)
         if input_box:
             draw2.rectangle(input_box, outline='red', width=5)
             image2.save(image_path_cache.replace('.jpg','.bbox.jpg'))
-        
-        logger.debug(f'extra_params: {self.extra_params} ({type(self.extra_params)})')
-            
-        cropper = CropMapper(image, **self.extra_params)
+
+        logger.debug(f'crop_kwargs={crop_kwargs} polygon_cfg={polygon_cfg} '
+                     f'postprocess_cfg={postprocess_cfg}')
+
+        cropper = CropMapper(image, **(crop_kwargs or {}))
         if input_box:
             img = cropper.crop(box=input_box)
             img2 = img.copy()
@@ -134,10 +221,10 @@ class SAM2_BigImg(LabelStudioMLBase):
             logger.info(point_coords)
             img = cropper.crop(point_coords)  # todo check these dont neeed to be inverse
         img.save(image_path_cache_cropped)
-        
+
         img = np.array(img)
         predictor.set_image(img)
-        
+
         point_coords = np.array(point_coords, dtype=np.float32) if point_coords else None
         point_labels = np.array(point_labels, dtype=np.float32) if point_labels else None
         input_box = np.array(input_box, dtype=np.float32) if input_box else None
@@ -154,10 +241,34 @@ class SAM2_BigImg(LabelStudioMLBase):
         prob = float(scores[0])
         masks = masks[sorted_ind]
         mask_cropped = masks[0, :, :].astype(np.uint8)
-        #np.save(mask_path_cache_cropped, mask_cropped)
+
+        # Post-process the crop-resolution mask. Under brush defaults
+        # (threshold 0, fill_holes false) both steps are no-ops.
+        postprocess_cfg = postprocess_cfg or {'mask_size_threshold': 0.0,
+                                              'fill_holes': False}
+        mask_cropped = filter_components(mask_cropped,
+                                         postprocess_cfg['mask_size_threshold'])
+        if postprocess_cfg['fill_holes']:
+            mask_cropped = fill_holes(mask_cropped)
         Image.fromarray(mask_cropped * 255).save(mask_path_cache_cropped.replace('.npy','.jpg'))
+
+        if polygon_cfg:
+            # Polygon path: work entirely from the crop mask -- no full-image
+            # mask, no RLE. `img` is the crop's RGB array (set above).
+            polygons = mask_to_polygons(mask_cropped,
+                                        epsilon=polygon_cfg['epsilon'],
+                                        max_points=polygon_cfg['max_points'])
+            overlay = draw_polygons(img, polygons)
+            Image.fromarray(overlay).save(
+                image_path_cache.replace('.jpg', '.crop.mask_polygon.jpg'))
+            polygons_full = cropper.polygons_crop_to_full(polygons)
+            logger.info(f'MODEL _sam_predict: {len(polygons_full)} polygon(s)')
+            return {
+                'polygons': polygons_full,
+                'probs': [prob] * len(polygons_full)
+            }
+
         mask = cropper.mask_crop_to_full(mask_cropped)
-        #np.save(mask_path_cache, mask)
         Image.fromarray(mask * 255).save(mask_path_cache.replace('.npy','.jpg'))
         return {
             'masks': [mask],
@@ -166,9 +277,11 @@ class SAM2_BigImg(LabelStudioMLBase):
 
 
     def predict(self, tasks: List[Dict], context: Optional[Dict] = None, **kwargs) -> ModelResponse:
-        """ Returns the predicted mask for a smart keypoint that has been placed."""
+        """ Returns the predicted mask/polygon for a smart prompt that was placed."""
         logger.info(f'MODEL predict(tasks={tasks}, context={context})')
-        from_name, to_name, value = self.get_first_tag_occurence('BrushLabels', 'Image')
+        crop_kwargs, polygon_cfg, postprocess_cfg = parse_extra_params(self.extra_params)
+        control_tag = 'PolygonLabels' if polygon_cfg else 'BrushLabels'
+        from_name, to_name, value = self.get_first_tag_occurence(control_tag, 'Image')
 
         if not context or not context.get('result'):
             # if there is no context, no interaction has happened yet
@@ -203,16 +316,29 @@ class SAM2_BigImg(LabelStudioMLBase):
             point_coords=point_coords or None,
             point_labels=point_labels or None,
             input_box=input_box,
-            task=tasks[0]
+            task=tasks[0],
+            crop_kwargs=crop_kwargs,
+            polygon_cfg=polygon_cfg,
+            postprocess_cfg=postprocess_cfg
         )
 
-        predictions = self.get_results(
-            masks=predictor_results['masks'],
-            probs=predictor_results['probs'],
-            width=image_width,
-            height=image_height,
-            from_name=from_name,
-            to_name=to_name,
-            label=selected_label)
-        
+        if polygon_cfg:
+            predictions = self.get_polygon_results(
+                polygons=predictor_results['polygons'],
+                probs=predictor_results['probs'],
+                width=image_width,
+                height=image_height,
+                from_name=from_name,
+                to_name=to_name,
+                label=selected_label)
+        else:
+            predictions = self.get_results(
+                masks=predictor_results['masks'],
+                probs=predictor_results['probs'],
+                width=image_width,
+                height=image_height,
+                from_name=from_name,
+                to_name=to_name,
+                label=selected_label)
+
         return ModelResponse(predictions=predictions)

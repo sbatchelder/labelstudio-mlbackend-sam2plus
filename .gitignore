@@ -1,6 +1,8 @@
 # Development
 __pycache__
 data/
+.venv
+examples/
 
 # Imagery
 *.jpg

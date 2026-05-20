@@ -54,7 +54,7 @@ RUN --mount=type=cache,target=${PIP_CACHE_DIR},sharing=locked \
       pip3 install -r requirements-test.txt; \
     fi
 
-COPY . ./
+COPY ./src/app ./
 
 WORKDIR ../sam2
 

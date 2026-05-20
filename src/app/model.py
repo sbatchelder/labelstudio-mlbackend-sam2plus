@@ -181,6 +181,41 @@ class SAM2_BigImg(LabelStudioMLBase):
         }]
 
 
+    def _sam_predict_stock(self, img_url, point_coords=None, point_labels=None,
+                           input_box=None, task=None):
+        """Unmodified upstream SAM2 path: the full image goes to SAM2, with no
+        cropping and no crop side-effect files. Used when no extra_params are
+        provided, so the backend behaves exactly like the stock SAM2 example.
+        """
+        logger.info('MODEL _sam_predict_stock')
+
+        cache_dir = '/cache'
+        if not os.path.isdir(cache_dir): os.mkdir(cache_dir)
+        image_path = get_local_path(img_url, task_id=task.get('id'), cache_dir=cache_dir)
+        image = np.array(Image.open(image_path).convert("RGB"))
+        predictor.set_image(image)
+
+        point_coords = np.array(point_coords, dtype=np.float32) if point_coords else None
+        point_labels = np.array(point_labels, dtype=np.float32) if point_labels else None
+        input_box = np.array(input_box, dtype=np.float32) if input_box else None
+
+        masks, scores, logits = predictor.predict(
+            point_coords=point_coords,
+            point_labels=point_labels,
+            box=input_box,
+            multimask_output=True
+        )
+        sorted_ind = np.argsort(scores)[::-1]
+        masks = masks[sorted_ind]
+        scores = scores[sorted_ind]
+        mask = masks[0, :, :].astype(np.uint8)
+        prob = float(scores[0])
+        return {
+            'masks': [mask],
+            'probs': [prob]
+        }
+
+
     def _sam_predict(self, img_url, point_coords=None, point_labels=None, input_box=None,
                      task=None, crop_kwargs=None, polygon_cfg=None, postprocess_cfg=None):
         logger.info('MODEL _sam_predict')
@@ -279,7 +314,9 @@ class SAM2_BigImg(LabelStudioMLBase):
     def predict(self, tasks: List[Dict], context: Optional[Dict] = None, **kwargs) -> ModelResponse:
         """ Returns the predicted mask/polygon for a smart prompt that was placed."""
         logger.info(f'MODEL predict(tasks={tasks}, context={context})')
-        crop_kwargs, polygon_cfg, postprocess_cfg = parse_extra_params(self.extra_params)
+        extra_params = self.extra_params
+        crop_kwargs, polygon_cfg, postprocess_cfg = parse_extra_params(extra_params)
+        stock = not extra_params  # no extra_params -> unmodified upstream behaviour
         control_tag = 'PolygonLabels' if polygon_cfg else 'BrushLabels'
         from_name, to_name, value = self.get_first_tag_occurence(control_tag, 'Image')
 
@@ -311,16 +348,26 @@ class SAM2_BigImg(LabelStudioMLBase):
         print(f'Point coords are {point_coords}, point labels are {point_labels}, input box is {input_box}')
 
         img_url = tasks[0]['data'][value]
-        predictor_results = self._sam_predict(
-            img_url=img_url,
-            point_coords=point_coords or None,
-            point_labels=point_labels or None,
-            input_box=input_box,
-            task=tasks[0],
-            crop_kwargs=crop_kwargs,
-            polygon_cfg=polygon_cfg,
-            postprocess_cfg=postprocess_cfg
-        )
+        if stock:
+            logger.info('MODEL predict: stock path (no extra_params)')
+            predictor_results = self._sam_predict_stock(
+                img_url=img_url,
+                point_coords=point_coords or None,
+                point_labels=point_labels or None,
+                input_box=input_box,
+                task=tasks[0]
+            )
+        else:
+            predictor_results = self._sam_predict(
+                img_url=img_url,
+                point_coords=point_coords or None,
+                point_labels=point_labels or None,
+                input_box=input_box,
+                task=tasks[0],
+                crop_kwargs=crop_kwargs,
+                polygon_cfg=polygon_cfg,
+                postprocess_cfg=postprocess_cfg
+            )
 
         if polygon_cfg:
             predictions = self.get_polygon_results(

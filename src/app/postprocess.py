@@ -57,6 +57,27 @@ def fill_holes(mask: np.ndarray) -> np.ndarray:
     return out
 
 
+def dilate_mask(mask: np.ndarray, padding) -> np.ndarray:
+    """Inflate a binary mask outward by `padding`.
+
+    `padding` is an int (crop pixels) or a float (fraction of the mask's
+    equivalent-circle radius, sqrt(area / pi)); 0 / 0.0 is a no-op. Dilation
+    pushes blob boundaries outward, so polygon points extracted afterwards sit
+    slightly outside the true edge rather than biting into the object.
+    """
+    mask = mask.astype(np.uint8)
+    if isinstance(padding, float):
+        area = int(np.count_nonzero(mask))
+        radius = round(padding * (area / np.pi) ** 0.5)
+    else:
+        radius = int(padding)
+    if radius <= 0:
+        return mask
+    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE,
+                                       (2 * radius + 1, 2 * radius + 1))
+    return cv2.dilate(mask, kernel, iterations=1)
+
+
 def _simplify(contour: np.ndarray, epsilon: float, max_points: int) -> np.ndarray:
     """Douglas-Peucker simplification, honouring `max_points`.
 

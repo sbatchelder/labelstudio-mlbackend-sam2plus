@@ -18,8 +18,8 @@ from sam2.build_sam import build_sam2
 from sam2.sam2_image_predictor import SAM2ImagePredictor
 
 from seg_cropper import CropMapper, Box
-from postprocess import (filter_components, fill_holes, mask_to_polygons,
-                         draw_polygons, POLYGON_DEFAULTS)
+from postprocess import (filter_components, fill_holes, dilate_mask,
+                         mask_to_polygons, draw_polygons, POLYGON_DEFAULTS)
 
 import logging
 logger=logging.getLogger(__name__)
@@ -63,7 +63,7 @@ def parse_extra_params(extra_params):
 
     - crop_kwargs    : kwargs forwarded to CropMapper
     - polygon_cfg    : {'epsilon', 'max_points'} when as_polygon is set, else None
-    - postprocess_cfg: {'mask_size_threshold', 'fill_holes'}
+    - postprocess_cfg: {'mask_size_threshold', 'fill_holes', 'dilate'}
 
     Unknown top-level keys are warned about and ignored. With as_polygon the
     postprocess defaults shift (size threshold 1, fill_holes true) and
@@ -91,6 +91,7 @@ def parse_extra_params(extra_params):
     postprocess_cfg = {
         'mask_size_threshold': 1.0 if polygon_cfg else 0.0,
         'fill_holes': bool(polygon_cfg),
+        'dilate': 0,
     }
     for key in postprocess_cfg:
         if key in postprocess:
@@ -278,13 +279,16 @@ class SAM2_BigImg(LabelStudioMLBase):
         mask_cropped = masks[0, :, :].astype(np.uint8)
 
         # Post-process the crop-resolution mask. Under brush defaults
-        # (threshold 0, fill_holes false) both steps are no-ops.
+        # (threshold 0, fill_holes false, dilate 0) all steps are no-ops.
         postprocess_cfg = postprocess_cfg or {'mask_size_threshold': 0.0,
-                                              'fill_holes': False}
+                                              'fill_holes': False,
+                                              'dilate': 0}
         mask_cropped = filter_components(mask_cropped,
                                          postprocess_cfg['mask_size_threshold'])
         if postprocess_cfg['fill_holes']:
             mask_cropped = fill_holes(mask_cropped)
+        if postprocess_cfg['dilate']:
+            mask_cropped = dilate_mask(mask_cropped, postprocess_cfg['dilate'])
         Image.fromarray(mask_cropped * 255).save(mask_path_cache_cropped.replace('.npy','.jpg'))
 
         if polygon_cfg:

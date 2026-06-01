@@ -9,6 +9,14 @@ sys.path.insert(0, str(APP_SRC))
 from schemas import normalize_extra_params  # noqa: E402
 
 
+def test_empty_extra_params_uses_stock_like_defaults_without_optional_steps():
+    cfg = normalize_extra_params({})
+
+    assert cfg.subpatching is None
+    assert cfg.return_format.type == "BrushLabels"
+    assert cfg.postprocess is None
+
+
 def test_extra_params_accepts_dashed_keys_and_case_insensitive_plural_labels():
     cfg = normalize_extra_params(
         """
@@ -63,3 +71,38 @@ def test_extra_params_polygon_defaults_do_not_count_as_supplied_keys():
 
     assert cfg.return_format.epsilon == 1.0
     assert cfg.return_format.max_points == 100
+
+
+def test_extra_params_polygon_implicitly_fills_holes_without_postprocess_key():
+    cfg = normalize_extra_params({"return_format": {"type": "PolygonLabels"}})
+
+    assert cfg.subpatching is None
+    assert cfg.postprocess.fill_holes is True
+    assert cfg.postprocess.mask_size_threshold == 0.0
+    assert cfg.postprocess.dilate == 0
+
+
+def test_extra_params_return_format_only_does_not_enable_subpatching_or_postprocess():
+    cfg = normalize_extra_params({"return_format": {"type": "RectangleLabels"}})
+
+    assert cfg.subpatching is None
+    assert cfg.return_format.type == "RectangleLabels"
+    assert cfg.postprocess is None
+
+
+def test_extra_params_polygon_implicitly_fills_holes_when_postprocess_key_omits_it():
+    cfg = normalize_extra_params({
+        "return_format": {"type": "PolygonLabels"},
+        "postprocess": {"dilate": 0.05},
+    })
+
+    assert cfg.postprocess.fill_holes is True
+    assert cfg.postprocess.dilate == 0.05
+
+
+def test_extra_params_polygon_rejects_explicit_fill_holes_false():
+    with pytest.raises(ValueError, match="postprocess.fill_holes must be true"):
+        normalize_extra_params({
+            "return_format": {"type": "PolygonLabels"},
+            "postprocess": {"fill-holes": False},
+        })

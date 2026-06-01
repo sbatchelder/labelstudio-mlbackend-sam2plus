@@ -63,15 +63,9 @@ class PostprocessConfig:
 
 @dataclass(frozen=True)
 class ExtraParamsConfig:
-    subpatching: SubpatchingConfig = field(default_factory=SubpatchingConfig)
+    subpatching: SubpatchingConfig | None = None
     return_format: ReturnFormatConfig = field(default_factory=ReturnFormatConfig)
-    postprocess: PostprocessConfig = field(
-        default_factory=lambda: PostprocessConfig(
-            mask_size_threshold=0.0,
-            fill_holes=False,
-            dilate=0,
-        )
-    )
+    postprocess: PostprocessConfig | None = None
 
 
 _RETURN_FORMATS = {
@@ -114,8 +108,6 @@ _RETURN_FORMATS = {
 }
 
 _POLYGON_TYPES = {"PolygonLabels", "Polygon"}
-_RECTANGLE_TYPES = {"RectangleLabels", "Rectangle"}
-_VECTOR_TYPES = _POLYGON_TYPES | _RECTANGLE_TYPES
 _POLYGON_DEFAULTS = {"epsilon": 1.0, "max_points": 100}
 
 _TOP_LEVEL_KEYS = {"subpatching", "return_format", "postprocess"}
@@ -150,9 +142,16 @@ def normalize_extra_params(extra_params: Dict[str, Any] | str | None) -> ExtraPa
     extra = _normalize_keys(decode_extra_params(extra_params), "extra_params")
     _reject_unknown("extra_params", extra, _TOP_LEVEL_KEYS)
 
-    subpatching = _parse_subpatching(extra.get("subpatching") or {})
+    subpatching = (
+        _parse_subpatching(extra["subpatching"])
+        if "subpatching" in extra
+        else None
+    )
     return_format = _parse_return_format(extra.get("return_format") or {})
-    postprocess = _parse_postprocess(extra.get("postprocess") or {}, return_format.type)
+    postprocess = _parse_postprocess(
+        extra["postprocess"] if "postprocess" in extra else None,
+        return_format.type,
+    )
     return ExtraParamsConfig(
         subpatching=subpatching,
         return_format=return_format,
@@ -240,17 +239,22 @@ def _parse_return_format(value: Any) -> ReturnFormatConfig:
     return ReturnFormatConfig(**base)
 
 
-def _parse_postprocess(value: Any, return_type: str) -> PostprocessConfig:
-    cfg = _require_object("extra_params.postprocess", value)
+def _parse_postprocess(value: Any, return_type: str) -> PostprocessConfig | None:
+    supplied = value is not None
+    cfg = _require_object("extra_params.postprocess", value) if supplied else {}
     _reject_unknown("extra_params.postprocess", cfg, _POSTPROCESS_KEYS)
 
-    is_vector = return_type in _VECTOR_TYPES
+    is_polygon = return_type in _POLYGON_TYPES
     values = {
-        "mask_size_threshold": 1.0 if is_vector else 0.0,
-        "fill_holes": is_vector,
+        "mask_size_threshold": 0.0,
+        "fill_holes": is_polygon,
         "dilate": 0,
     }
     values.update(cfg)
+
+    if not supplied and not is_polygon:
+        return None
+
     _require_number(
         "extra_params.postprocess.mask_size_threshold",
         values["mask_size_threshold"],
@@ -261,7 +265,7 @@ def _parse_postprocess(value: Any, return_type: str) -> PostprocessConfig:
         raise ValueError("extra_params.postprocess.fill_holes must be a boolean")
     _require_number("extra_params.postprocess.dilate", values["dilate"])
 
-    if return_type in _POLYGON_TYPES and not values["fill_holes"]:
+    if is_polygon and not values["fill_holes"]:
         raise ValueError(
             "postprocess.fill_holes must be true when return_format.type is "
             "Polygon/PolygonLabels (a polygon ring cannot represent a hole)"

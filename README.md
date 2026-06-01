@@ -210,11 +210,11 @@ keeps the real values.
 
 ## Model parameters (`extra_params`)
 
-With **no** `extra_params` the backend behaves exactly like the stock
-[SAM2 image backend](https://github.com/HumanSignal/label-studio-ml-backend/tree/master/label_studio_ml/examples/segment_anything_2_image):
-the full image is sent to SAM2 and a brush (RLE) mask is returned. Supplying
-**any** `extra_params` switches on the enhanced pipeline - patch around the prompt,
-optionally post-process, and optionally return polygons instead of brush masks.
+With **no** `extra_params` the full image is sent to SAM2 and a
+`BrushLabels` RLE mask is returned. Top-level `extra_params` keys enable
+specific behavior independently: `subpatching` crops around the prompt,
+`postprocess` edits the predicted mask before output conversion, and
+`return_format` changes the returned Label Studio geometry.
 
 `extra_params` are static per-project values. Label Studio sends them to the
 backend's `/setup` endpoint; for local testing `sam2plus-probe` does the same via
@@ -224,8 +224,9 @@ instead of being ignored.
 
 ### Subpatching (`subpatching`)
 
-Patch options live under the top-level `subpatching` object and are forwarded to
-`CropMapper` (`seg_cropper.py`):
+If `subpatching` is omitted, SAM2 receives the full image. Patch options live
+under the top-level `subpatching` object and are forwarded to `CropMapper`
+(`seg_cropper.py`):
 
 | Key | Default | Meaning |
 |-----|---------|---------|
@@ -253,17 +254,23 @@ Polygon formats accept these additional `return_format` keys:
 
 The selected output requires a matching control tag in the labeling config:
 `<BrushLabels>`, `<Brush>`, `<PolygonLabels>`, `<Polygon>`,
-`<RectangleLabels>`, or `<Rectangle>`. Polygon and rectangle formats shift the
-`postprocess` defaults — see below.
+`<RectangleLabels>`, or `<Rectangle>`. Polygon formats implicitly require
+filled holes — see below.
 
 ### Post-processing (`postprocess`)
 
-Applied to the binary mask before it is turned into a brush mask or polygons:
+If `postprocess` is omitted, the mask is not post-processed, except polygon
+formats implicitly run with `fill_holes=true` because a polygon ring cannot
+represent holes. If `postprocess.fill_holes` is explicitly set to `false` for
+`PolygonLabels` or `Polygon`, the request errors.
 
-| Key | Default (brush / polygon) | Meaning |
+When enabled, post-processing is applied to the binary mask before it is turned
+into a brush mask, polygon, or rectangle:
+
+| Key | Default | Meaning |
 |-----|---------------------------|---------|
-| `mask_size_threshold` / `mask-size-threshold` | `0` / `1` | keep connected components whose area ≥ threshold × the largest component. `1` = largest blob only; `0.5` = blobs at least half its size; `0` = keep everything |
-| `fill_holes` / `fill-holes` | `false` / `true` | fill the interior holes of each blob. Must be `true` for polygon return formats (a polygon ring cannot encode a hole) — otherwise the request errors |
+| `mask_size_threshold` / `mask-size-threshold` | `0` | keep connected components whose area ≥ threshold × the largest component. `1` = largest blob only; `0.5` = blobs at least half its size; `0` = keep everything |
+| `fill_holes` / `fill-holes` | `false` (`true` for polygons) | fill the interior holes of each blob. Must not be `false` for polygon return formats |
 | `dilate` | `0` | inflate the mask outward (morphological dilation) so polygon points/edges sit just outside the true boundary instead of biting into the object. An **int** is an absolute distance in crop pixels; a **float** is a fraction of the mask's equivalent-circle radius `sqrt(area / π)` (scales with object size). `0` / `0.0` = no-op |
 
 With polygon or rectangle return formats and `mask_size_threshold < 1`,

@@ -55,16 +55,15 @@ def box_xwyh2xyxy(box:Box) -> Box:
 
 _POLYGON_TYPES = {'PolygonLabels', 'Polygon'}
 _RECTANGLE_TYPES = {'RectangleLabels', 'Rectangle'}
-_VECTOR_TYPES = _POLYGON_TYPES | _RECTANGLE_TYPES
 
 
 def parse_extra_params(extra_params):
     """Split extra_params into (patch kwargs, return format, postprocess config)."""
     cfg = normalize_extra_params(extra_params)
     return (
-        cfg.subpatching.cropper_kwargs(),
+        cfg.subpatching.cropper_kwargs() if cfg.subpatching else None,
         cfg.return_format.as_dict(),
-        cfg.postprocess.as_dict(),
+        cfg.postprocess.as_dict() if cfg.postprocess else None,
     )
 
 
@@ -189,41 +188,6 @@ class SAM2Plus(LabelStudioMLBase):
         return self._prediction_response(results, probs)
 
 
-    def _sam_predict_stock(self, img_url, point_coords=None, point_labels=None,
-                           input_box=None, task=None):
-        """Unmodified upstream SAM2 path: the full image goes to SAM2, with no
-        cropping and no crop side-effect files. Used when no extra_params are
-        provided, so the backend behaves exactly like the stock SAM2 example.
-        """
-        logger.info('MODEL _sam_predict_stock')
-
-        cache_dir = '/cache'
-        if not os.path.isdir(cache_dir): os.mkdir(cache_dir)
-        image_path = get_local_path(img_url, task_id=task.get('id'), cache_dir=cache_dir)
-        image = np.array(Image.open(image_path).convert("RGB"))
-        predictor.set_image(image)
-
-        point_coords = np.array(point_coords, dtype=np.float32) if point_coords else None
-        point_labels = np.array(point_labels, dtype=np.float32) if point_labels else None
-        input_box = np.array(input_box, dtype=np.float32) if input_box else None
-
-        masks, scores, logits = predictor.predict(
-            point_coords=point_coords,
-            point_labels=point_labels,
-            box=input_box,
-            multimask_output=True
-        )
-        sorted_ind = np.argsort(scores)[::-1]
-        masks = masks[sorted_ind]
-        scores = scores[sorted_ind]
-        mask = masks[0, :, :].astype(np.uint8)
-        prob = float(scores[0])
-        return {
-            'masks': [mask],
-            'probs': [prob]
-        }
-
-
     def _sam_predict(self, img_url, point_coords=None, point_labels=None, input_box=None,
                      task=None, patch_kwargs=None, return_format=None, postprocess_cfg=None):
         logger.info('MODEL _sam_predict')
@@ -232,52 +196,53 @@ class SAM2Plus(LabelStudioMLBase):
         if not os.path.isdir(cache_dir): os.mkdir(cache_dir)
         image_path = get_local_path(img_url, task_id=task.get('id'), cache_dir=cache_dir)
 
-        image_path_cache = os.path.join('/cache',os.path.basename(image_path))
-        image_path_cache_patch = image_path_cache.replace('.jpg','.patch.jpg')
-        mask_path_cache = image_path_cache.replace('.jpg','.mask.npy')
-        mask_path_cache_patch = image_path_cache.replace('.jpg','.mask.patch.npy')
+        image_path_cache = os.path.join('/cache', os.path.basename(image_path))
+        image_path_cache_patch = image_path_cache.replace('.jpg', '.patch.jpg')
+        mask_path_cache = image_path_cache.replace('.jpg', '.mask.npy')
+        mask_path_cache_patch = image_path_cache.replace('.jpg', '.mask.patch.npy')
 
         image = Image.open(image_path).convert("RGB")
-
-        image2 = image.copy()
-        draw2 = ImageDraw.Draw(image2)
-        if input_box:
-            draw2.rectangle(input_box, outline='red', width=5)
-            image2.save(image_path_cache.replace('.jpg','.bbox.jpg'))
-
         return_format = return_format or normalize_extra_params({}).return_format.as_dict()
         logger.debug(f'patch_kwargs={patch_kwargs} return_format={return_format} '
                      f'postprocess_cfg={postprocess_cfg}')
 
-        cropper = CropMapper(image, **(patch_kwargs or {}))
-        if input_box:
-            img = cropper.crop(box=input_box)
-            img2 = img.copy()
-            input_box = (input_box[0] - cropper.offx,
-                         input_box[1] - cropper.offy,
-                         input_box[2] - cropper.offx,
-                         input_box[3] - cropper.offy)
-            logger.debug(f'offset_box: {input_box}')
-            draw1 = ImageDraw.Draw(img2)
-            draw1.rectangle(input_box, outline='red', width=5)
-            img2.save(image_path_cache_patch.replace('.patch.','.patch.bbox.'))
-        else:
-            logger.info(point_coords)
-            img = cropper.crop(point_coords)
-            point_coords = [
-                [int(x - cropper.offx), int(y - cropper.offy)]
-                for x, y in point_coords
-            ]
-            logger.debug(f'offset_point_coords: {point_coords}')
-            img2 = img.copy()
-            draw1 = ImageDraw.Draw(img2)
-            for x, y in point_coords:
-                draw1.ellipse((x - 12, y - 12, x + 12, y + 12), outline='red', width=5)
-            img2.save(image_path_cache_patch.replace('.patch.','.patch.bbox.'))
-        img.save(image_path_cache_patch)
+        cropper = None
+        sam_image = image
+        if patch_kwargs is not None:
+            cropper = CropMapper(image, **patch_kwargs)
+            image2 = image.copy()
+            draw2 = ImageDraw.Draw(image2)
+            if input_box:
+                draw2.rectangle(input_box, outline='red', width=5)
+                image2.save(image_path_cache.replace('.jpg', '.bbox.jpg'))
+                sam_image = cropper.crop(box=input_box)
+                img2 = sam_image.copy()
+                input_box = (input_box[0] - cropper.offx,
+                             input_box[1] - cropper.offy,
+                             input_box[2] - cropper.offx,
+                             input_box[3] - cropper.offy)
+                logger.debug(f'offset_box: {input_box}')
+                draw1 = ImageDraw.Draw(img2)
+                draw1.rectangle(input_box, outline='red', width=5)
+                img2.save(image_path_cache_patch.replace('.patch.', '.patch.bbox.'))
+            else:
+                logger.info(point_coords)
+                sam_image = cropper.crop(point_coords)
+                point_coords = [
+                    [int(x - cropper.offx), int(y - cropper.offy)]
+                    for x, y in point_coords
+                ]
+                logger.debug(f'offset_point_coords: {point_coords}')
+                img2 = sam_image.copy()
+                draw1 = ImageDraw.Draw(img2)
+                for x, y in point_coords:
+                    draw1.ellipse((x - 12, y - 12, x + 12, y + 12),
+                                  outline='red', width=5)
+                img2.save(image_path_cache_patch.replace('.patch.', '.patch.bbox.'))
+            sam_image.save(image_path_cache_patch)
 
-        img = np.array(img)
-        predictor.set_image(img)
+        sam_array = np.array(sam_image)
+        predictor.set_image(sam_array)
 
         point_coords = np.array(point_coords, dtype=np.float32) if point_coords else None
         point_labels = np.array(point_labels, dtype=np.float32) if point_labels else None
@@ -294,45 +259,44 @@ class SAM2Plus(LabelStudioMLBase):
         scores = scores[sorted_ind]
         prob = float(scores[0])
         masks = masks[sorted_ind]
-        mask_cropped = masks[0, :, :].astype(np.uint8)
+        mask_sam = masks[0, :, :].astype(np.uint8)
 
-        # Post-process the crop-resolution mask. Under brush defaults
-        # (threshold 0, fill_holes false, dilate 0) all steps are no-ops.
-        postprocess_cfg = postprocess_cfg or {'mask_size_threshold': 0.0,
-                                              'fill_holes': False,
-                                              'dilate': 0}
-        mask_cropped = filter_components(mask_cropped,
+        if postprocess_cfg is not None:
+            mask_sam = filter_components(mask_sam,
                                          postprocess_cfg['mask_size_threshold'])
-        if postprocess_cfg['fill_holes']:
-            mask_cropped = fill_holes(mask_cropped)
-        if postprocess_cfg['dilate']:
-            mask_cropped = dilate_mask(mask_cropped, postprocess_cfg['dilate'])
+            if postprocess_cfg['fill_holes']:
+                mask_sam = fill_holes(mask_sam)
+            if postprocess_cfg['dilate']:
+                mask_sam = dilate_mask(mask_sam, postprocess_cfg['dilate'])
         if return_format['type'] in _POLYGON_TYPES:
-            # Polygon path: work entirely from the patch mask -- no full-image
-            # mask, no RLE. `img` is the crop's RGB array (set above).
-            polygons = mask_to_polygons(mask_cropped,
+            polygons = mask_to_polygons(mask_sam,
                                         epsilon=return_format['epsilon'],
                                         max_points=return_format['max_points'])
-            overlay = draw_polygons(img, polygons)
-            Image.fromarray(overlay).save(
-                image_path_cache.replace('.jpg', '.patch.mask_polygon.jpg'))
-            polygons_full = cropper.polygons_crop_to_full(polygons)
-            logger.info(f'MODEL _sam_predict: {len(polygons_full)} polygon(s)')
+            if cropper is not None:
+                overlay = draw_polygons(sam_array, polygons)
+                Image.fromarray(overlay).save(
+                    image_path_cache.replace('.jpg', '.patch.mask_polygon.jpg'))
+                polygons = cropper.polygons_crop_to_full(polygons)
+            logger.info(f'MODEL _sam_predict: {len(polygons)} polygon(s)')
             return {
-                'polygons': polygons_full,
-                'probs': [prob] * len(polygons_full)
+                'polygons': polygons,
+                'probs': [prob] * len(polygons)
             }
 
         if return_format['type'] in _RECTANGLE_TYPES:
-            boxes = cropper.boxes_crop_to_full(mask_to_rectangles(mask_cropped))
+            boxes = mask_to_rectangles(mask_sam)
+            if cropper is not None:
+                boxes = cropper.boxes_crop_to_full(boxes)
             return {
                 'boxes': boxes,
                 'probs': [prob] * len(boxes)
             }
 
-        mask = cropper.mask_crop_to_full(mask_cropped)
-        Image.fromarray(mask_cropped * 255).save(mask_path_cache_patch.replace('.npy','.jpg'))
-        Image.fromarray(mask * 255).save(mask_path_cache.replace('.npy','.jpg'))
+        mask = cropper.mask_crop_to_full(mask_sam) if cropper is not None else mask_sam
+        if cropper is not None:
+            Image.fromarray(mask_sam * 255).save(
+                mask_path_cache_patch.replace('.npy', '.jpg'))
+            Image.fromarray(mask * 255).save(mask_path_cache.replace('.npy', '.jpg'))
         return {
             'masks': [mask],
             'probs': [prob]
@@ -348,7 +312,6 @@ class SAM2Plus(LabelStudioMLBase):
         except ValueError:
             logger.exception('invalid extra_params')
             raise
-        stock = not extra_params  # no extra_params -> unmodified upstream behaviour
         control_tag = return_format['tag']
         from_name, to_name, value = self.get_first_tag_occurence(control_tag, 'Image')
 
@@ -380,30 +343,20 @@ class SAM2Plus(LabelStudioMLBase):
         print(f'Point coords are {point_coords}, point labels are {point_labels}, input box is {input_box}')
 
         img_url = tasks[0]['data'][value]
-        if stock:
-            logger.info('MODEL predict: stock path (no extra_params)')
-            predictor_results = self._sam_predict_stock(
+        try:
+            predictor_results = self._sam_predict(
                 img_url=img_url,
                 point_coords=point_coords or None,
                 point_labels=point_labels or None,
                 input_box=input_box,
-                task=tasks[0]
+                task=tasks[0],
+                patch_kwargs=patch_kwargs,
+                return_format=return_format,
+                postprocess_cfg=postprocess_cfg
             )
-        else:
-            try:
-                predictor_results = self._sam_predict(
-                    img_url=img_url,
-                    point_coords=point_coords or None,
-                    point_labels=point_labels or None,
-                    input_box=input_box,
-                    task=tasks[0],
-                    patch_kwargs=patch_kwargs,
-                    return_format=return_format,
-                    postprocess_cfg=postprocess_cfg
-                )
-            except ValueError:
-                logger.exception('prediction request failed')
-                raise
+        except ValueError:
+            logger.exception('prediction request failed')
+            raise
 
         if return_format['type'] in _POLYGON_TYPES:
             predictions = self.get_polygon_results(

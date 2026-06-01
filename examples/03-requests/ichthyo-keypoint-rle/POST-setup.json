@@ -1,0 +1,8 @@
+{
+  "subpatching": {
+    "patch_size": 1024
+  },
+  "return_format": {
+    "type": "BrushLabel"
+  }
+}

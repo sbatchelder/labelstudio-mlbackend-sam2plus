@@ -1,12 +1,9 @@
 # Development
 __pycache__
+*.egg-info/
 data/
 .venv
-examples/
 probe_out/
-
-# Imagery
-*.jpg
 
 # IDK
 sam2_holding/

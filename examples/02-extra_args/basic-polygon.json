@@ -1,0 +1,5 @@
+{
+  "subpatching": { "patch_size": 1024 },
+  "postprocess": { "mask_size_threshold": 1, "fill_holes": true, "dilate": 0.05 },
+  "return_format": { "type": "PolygonLabel", "epsilon": 0.003, "max_points": 50 }
+}

@@ -1,0 +1,34 @@
+{
+  "project": "ichthyo-keypoint-rle",
+  "tasks": [
+    {
+      "id": 1,
+      "data": {
+        "image": "http://sam2bigimg.probe/ae1c57306eb443a49433d5befd61aa23/ichthyoliths.jpg"
+      }
+    }
+  ],
+  "label_config": "<View>\n  <Image name=\"image\" value=\"$image\" zoom=\"true\"/>\n  <KeyPointLabels name=\"tag1\" toName=\"image\" smart=\"true\">\n    <Label value=\"probe\"/>\n  </KeyPointLabels>\n  <BrushLabels name=\"tag2\" toName=\"image\">\n    <Label value=\"probe\"/>\n  </BrushLabels>\n</View>",
+  "params": {
+    "context": {
+      "result": [
+        {
+          "original_width": 10246,
+          "original_height": 9818,
+          "image_rotation": 0,
+          "from_name": "tag1",
+          "to_name": "image",
+          "type": "keypointlabels",
+          "value": {
+            "x": 39.293382783525274,
+            "y": 26.156039926665308,
+            "keypointlabels": [
+              "probe"
+            ]
+          },
+          "is_positive": 1
+        }
+      ]
+    }
+  }
+}

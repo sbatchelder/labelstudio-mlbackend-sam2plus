@@ -1,0 +1,35 @@
+{
+  "project": "ichthyo-polygon",
+  "tasks": [
+    {
+      "id": 1,
+      "data": {
+        "image": "http://sam2bigimg.probe/c77e0772ceec43bf84d04b55fecefaef/ichthyoliths.jpg"
+      }
+    }
+  ],
+  "label_config": "<View>\n  <Image name=\"image\" value=\"$image\" zoom=\"true\"/>\n  <RectangleLabels name=\"tag1\" toName=\"image\" smart=\"true\">\n    <Label value=\"probe\"/>\n  </RectangleLabels>\n  <PolygonLabels name=\"tag2\" toName=\"image\">\n    <Label value=\"probe\"/>\n  </PolygonLabels>\n</View>",
+  "params": {
+    "context": {
+      "result": [
+        {
+          "original_width": 10246,
+          "original_height": 9818,
+          "image_rotation": 0,
+          "from_name": "tag1",
+          "to_name": "image",
+          "type": "rectanglelabels",
+          "value": {
+            "x": 38.15147374585204,
+            "y": 24.526380118150335,
+            "width": 2.2838180753464767,
+            "height": 3.2593196170299454,
+            "rectanglelabels": [
+              "probe"
+            ]
+          }
+        }
+      ]
+    }
+  }
+}

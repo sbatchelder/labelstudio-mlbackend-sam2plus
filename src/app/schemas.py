@@ -4,6 +4,7 @@ from json import JSONDecodeError
 from typing import Any, Dict, Literal, Tuple, Union
 
 Dims = Tuple[int, int]
+ResizeSpec = Union[float, int, Dims]
 
 
 @dataclass(frozen=True)
@@ -63,6 +64,7 @@ class PostprocessConfig:
 
 @dataclass(frozen=True)
 class ExtraParamsConfig:
+    fullframe_resize: ResizeSpec | None = None
     subpatching: SubpatchingConfig | None = None
     return_format: ReturnFormatConfig = field(default_factory=ReturnFormatConfig)
     postprocess: PostprocessConfig | None = None
@@ -110,7 +112,7 @@ _RETURN_FORMATS = {
 _POLYGON_TYPES = {"PolygonLabels", "Polygon"}
 _POLYGON_DEFAULTS = {"epsilon": 1.0, "max_points": 100}
 
-_TOP_LEVEL_KEYS = {"subpatching", "return_format", "postprocess"}
+_TOP_LEVEL_KEYS = {"fullframe_resize", "subpatching", "return_format", "postprocess"}
 _SUBPATCHING_KEYS = {
     "patch_size",
     "mode",
@@ -142,6 +144,11 @@ def normalize_extra_params(extra_params: Dict[str, Any] | str | None) -> ExtraPa
     extra = _normalize_keys(decode_extra_params(extra_params), "extra_params")
     _reject_unknown("extra_params", extra, _TOP_LEVEL_KEYS)
 
+    fullframe_resize = (
+        _parse_fullframe_resize(extra["fullframe_resize"])
+        if "fullframe_resize" in extra
+        else None
+    )
     subpatching = (
         _parse_subpatching(extra["subpatching"])
         if "subpatching" in extra
@@ -153,6 +160,7 @@ def normalize_extra_params(extra_params: Dict[str, Any] | str | None) -> ExtraPa
         return_format.type,
     )
     return ExtraParamsConfig(
+        fullframe_resize=fullframe_resize,
         subpatching=subpatching,
         return_format=return_format,
         postprocess=postprocess,
@@ -192,6 +200,8 @@ def _parse_subpatching(value: Any) -> SubpatchingConfig:
     _reject_unknown("extra_params.subpatching", cfg, _SUBPATCHING_KEYS)
     patch_size = cfg.get("patch_size", 1024)
     _validate_patch_size(patch_size)
+    if isinstance(patch_size, (list, tuple)):
+        patch_size = (patch_size[0], patch_size[1])
     mode = cfg.get("mode", "default")
     if mode not in {"default", "padding"}:
         raise ValueError("extra_params.subpatching.mode must be 'default' or 'padding'")
@@ -289,6 +299,29 @@ def _validate_patch_size(value: Any):
     raise ValueError(
         "extra_params.subpatching.patch_size must be an integer or [width, height]"
     )
+
+
+def _parse_fullframe_resize(value: Any) -> ResizeSpec:
+    path = "extra_params.fullframe_resize"
+    if isinstance(value, bool):
+        raise ValueError(f"{path} must be a positive number or [width, height]")
+    if isinstance(value, float):
+        if value <= 0 or value > 1:
+            raise ValueError(f"{path} float scale must be > 0 and <= 1")
+        return value
+    if isinstance(value, int):
+        if value <= 0:
+            raise ValueError(f"{path} must be positive")
+        return value
+    if (
+        isinstance(value, (list, tuple))
+        and len(value) == 2
+        and all(isinstance(item, int) and not isinstance(item, bool) for item in value)
+    ):
+        if value[0] <= 0 or value[1] <= 0:
+            raise ValueError(f"{path} values must be positive")
+        return (value[0], value[1])
+    raise ValueError(f"{path} must be a float scale, integer size, or [width, height]")
 
 
 def _require_number(path: str, value: Any):

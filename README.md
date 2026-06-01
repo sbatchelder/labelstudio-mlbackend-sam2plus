@@ -18,18 +18,16 @@ image: "/guide/ml_tutorials/sam2-images.png"
 
 # SAM2Plus
 
-This is a modification of the [Labelstudio SAM2 ml-backend](https://github.com/HumanSignal/label-studio-ml-backend/tree/master/label_studio_ml/examples/segment_anything_2_image). It can be used to interactively add mask (brush) annotations on Labelstudio. 
+This is a modification of the [Labelstudio SAM2 ml-backend](https://github.com/HumanSignal/label-studio-ml-backend/tree/master/label_studio_ml/examples/segment_anything_2_image). This ml-backend model is used to interactively make annotations on Labelstudio. 
 
-This fork allows for the creation of masks for small objects within a very large input image.
+This fork enhances the example SAM2 ml-backend in several ways:
+
+1. enables server-side mask post-process cleanup operations
+2. enables compatibility with annotation types beyond BrushLabels
+3. enables efficient inferencing on small objects in very large input images
+
 The when an image is received by the ml-endpoint, an area around the Labelstudio annotator's point/bounding-box prompt is cropped from the original image. The SAM2 mask is generated using the crop, and the resulting mask's coordinates are then remapped to the original image's coordinates and returned to Labelstudio. 
 Without this, masks for small objects in large scenes loose definition, since SAM2 resizes input images to WxH resolution. With this method, mask resolution is preserved. 
-
-## TODOs
-- ~~customize patch area (pixel size, fraction-increase of input bbox)~~ — done: `subpatching.patch_size` / `subpatching.oversize_padding` (see [Model parameters](#model-parameters-extra_params))
-- mask cleanup: ~~single-mask, fill gaps, grow edges~~ done via `postprocess`; smooth edges still open
-- ~~allow multiple labelstudio instances to use endpoint~~ — done via `multi-compose.yml`
-- ~~Labelstudio Host, API Key, host-port, target GPU as .env variables~~ — done via `envs/`
-- ~~easy endpoint testing from within project but outside running container~~ - done: `sam2plus-probe`
 
 ## Deployment
 
@@ -212,15 +210,32 @@ keeps the real values.
 
 With **no** `extra_params` the full image is sent to SAM2 and a
 `BrushLabels` RLE mask is returned. Top-level `extra_params` keys enable
-specific behavior independently: `subpatching` crops around the prompt,
-`postprocess` edits the predicted mask before output conversion, and
-`return_format` changes the returned Label Studio geometry.
+specific behavior independently: `fullframe_resize` resizes the input before
+SAM, `subpatching` crops around the prompt, `postprocess` edits the predicted
+mask before output conversion, and `return_format` changes the returned Label
+Studio geometry. Output annotations are always mapped back to the original
+full-resolution image coordinates.
 
 `extra_params` are static per-project values. Label Studio sends them to the
 backend's `/setup` endpoint; for local testing `sam2plus-probe` does the same via
 `--extra-params` (see below). Keys may use underscores or dashes; dashes are
 normalized to underscores internally. Unknown or misplaced keys raise an error
 instead of being ignored.
+
+### Full-frame resize (`fullframe_resize`)
+
+If `fullframe_resize` is omitted, SAM2 receives the original full-resolution
+image unless `subpatching` is configured. If supplied, the full frame is resized
+before prompt coordinates, patching, and SAM inference. The value may be:
+
+| Value | Meaning |
+|-------|---------|
+| float `> 0` and `<= 1` | scale both dimensions by this fraction, for example `0.5` halves width and height |
+| int | resize to an exact square `size x size` |
+| `[width, height]` | resize to exact dimensions |
+
+Only downscaling is allowed. Masks, polygons, and rectangles are scaled back to
+the original image size before they are returned to Label Studio.
 
 ### Subpatching (`subpatching`)
 
@@ -231,10 +246,15 @@ under the top-level `subpatching` object and are forwarded to `CropMapper`
 | Key | Default | Meaning |
 |-----|---------|---------|
 | `patch_size` / `patch-size` | `1024` | patch edge length in px — an int (square) or `[width, height]` |
+| `patch_resize` / `patch-resize` | unset | resize the completed patch down to an int square size or `[width, height]` before SAM inference; only downscaling is allowed |
 | `mode` | `"default"` | `default` keeps the patch inside the image bounds; `padding` centers it on the prompt and pads past edges |
 | `padding_fill` / `padding-fill` | `"black"` | fill color used by `padding` mode |
 | `allow_oversize` / `allow-oversize` | `true` | grow the patch when the prompt box is larger than `patch_size`; if `false`, oversized prompts return an error |
 | `oversize_padding` / `oversize-padding` | `0.05` | extra fractional margin added when the patch is grown to fit an oversized box |
+
+When `patch_resize` is used, `.patch.jpg` and `.patch.bbox.jpg` show the final
+SAM input patch. Additional `.patch_resize.jpg` and `.patch_resize.bbox.jpg`
+side-effect files are written for clarity.
 
 ### Return format (`return_format`)
 

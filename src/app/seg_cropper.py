@@ -39,7 +39,9 @@ class CropMapper:
         return self.offset[1]
 
 
-    def crop(self, point_coords:List[Point]=None, box:Box=None) -> Image.Image:
+    def _prompt_dims(self, point_coords:List[Point]=None,
+                     box:Box=None) -> Tuple[Point, int, int]:
+        """Return (center, width, height) describing a box or point-list prompt."""
         if box:
             center = ((box[0] + box[2]) // 2, (box[1] + box[3]) // 2)
             width = box[2] - box[0]
@@ -58,18 +60,38 @@ class CropMapper:
             height = bottommost - topmost
         else:
             raise ValueError("Either point_coords or box must be provided")
+        return center, width, height
 
-        # adjust size if needed
-        if width > self.size[0] or height > self.size[1]:
+    def _oversize_side(self, width: int, height: int):
+        """Padded square side needed to fit an oversized prompt, or None when
+        the prompt already fits the current patch size."""
+        if width <= self.size[0] and height <= self.size[1]:
+            return None
+        return max(width, height) * self.oversize_padding  # eg 1.05 is 5% larger
+
+    def exceeds_image(self, point_coords:List[Point]=None, box:Box=None) -> bool:
+        """True when fitting this prompt would require a patch larger than the
+        source image. The caller should then fall back to full-frame inference
+        instead of subpatching (a patch that big is just the whole frame plus
+        padding, so cropping buys nothing)."""
+        _, width, height = self._prompt_dims(point_coords=point_coords, box=box)
+        side = self._oversize_side(width, height)
+        return side is not None and side > min(self.img.size)
+
+    def crop(self, point_coords:List[Point]=None, box:Box=None) -> Image.Image:
+        center, width, height = self._prompt_dims(point_coords=point_coords, box=box)
+
+        # grow the patch if the prompt region doesn't fit
+        side = self._oversize_side(width, height)
+        if side is not None:
             if not self.allow_oversize:
                 raise ValueError(
                     f"prompt region {(width, height)} exceeds patch size {self.size} "
                     "and extra_params.subpatching.allow-oversize is false"
                 )
-            largest = max(width, height)
-            largest_plus = largest * self.oversize_padding  # eg 1.05 is 5% larger
-            largest_plus = largest_plus + largest_plus % 2  # ensure even number
-            self.size = (largest_plus, largest_plus)
+            side = int(side)
+            side -= side % 2  # ensure even
+            self.size = (side, side)
 
         if self.mode == 'padding':
             return self.crop_with_padding(center)

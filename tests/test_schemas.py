@@ -37,7 +37,7 @@ def test_extra_params_accepts_dashed_keys_and_case_insensitive_plural_labels():
         """
     )
 
-    assert cfg.subpatching.patch_size == [900, 800]
+    assert cfg.subpatching.patch_size == (900, 800)
     assert cfg.subpatching.allow_oversize is False
     assert cfg.return_format.type == "PolygonLabels"
     assert cfg.return_format.epsilon == 0.003
@@ -54,6 +54,42 @@ def test_extra_params_rejects_singular_label_return_types(return_type):
 def test_extra_params_rejects_unknown_nested_keys():
     with pytest.raises(ValueError, match="unsupported extra_params.subpatching key"):
         normalize_extra_params({"subpatching": {"patch_size": 1024, "bogus": True}})
+
+
+def test_extra_params_accepts_fullframe_and_patch_size_specs():
+    cfg = normalize_extra_params({
+        "fullframe-resize": 0.5,
+        "subpatching": {
+            "patch-size": 1024,
+        },
+    })
+
+    assert cfg.fullframe_resize == 0.5
+    assert cfg.subpatching.patch_size == 1024
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        (2048, 2048),
+        ([2048, 1024], (2048, 1024)),
+    ],
+)
+def test_extra_params_accepts_fullframe_resize_pixel_specs(value, expected):
+    cfg = normalize_extra_params({"fullframe_resize": value})
+
+    assert cfg.fullframe_resize == expected
+
+
+@pytest.mark.parametrize("value", [0, -1, 1.2, True])
+def test_extra_params_rejects_bad_fullframe_resize_specs(value):
+    with pytest.raises(ValueError, match="extra_params.fullframe_resize"):
+        normalize_extra_params({"fullframe_resize": value})
+
+
+def test_extra_params_rejects_removed_patch_resize():
+    with pytest.raises(ValueError, match="unsupported extra_params.subpatching key"):
+        normalize_extra_params({"subpatching": {"patch_resize": [512, 384]}})
 
 
 def test_extra_params_rejects_malformed_json_with_location():

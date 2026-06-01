@@ -61,10 +61,73 @@ def parse_extra_params(extra_params):
     """Split extra_params into (patch kwargs, return format, postprocess config)."""
     cfg = normalize_extra_params(extra_params)
     return (
+        cfg.fullframe_resize,
         cfg.subpatching.cropper_kwargs() if cfg.subpatching else None,
         cfg.return_format.as_dict(),
         cfg.postprocess.as_dict() if cfg.postprocess else None,
     )
+
+
+def _resample(name):
+    return getattr(getattr(Image, "Resampling", Image), name)
+
+
+def _resize_target(spec, size, path):
+    width, height = size
+    if spec is None:
+        return size
+    if isinstance(spec, float):
+        target = (max(1, round(width * spec)), max(1, round(height * spec)))
+    elif isinstance(spec, int):
+        target = (spec, spec)
+    else:
+        target = tuple(spec)
+    if target[0] > width or target[1] > height:
+        raise ValueError(
+            f"{path} target {target} would upscale source size {size}; only downscale is allowed"
+        )
+    return target
+
+
+def _scale_point(point, from_size, to_size):
+    sx = to_size[0] / from_size[0]
+    sy = to_size[1] / from_size[1]
+    return [int(round(point[0] * sx)), int(round(point[1] * sy))]
+
+
+def _scale_points(points, from_size, to_size):
+    return [_scale_point(point, from_size, to_size) for point in points]
+
+
+def _scale_box(box, from_size, to_size):
+    left, top = _scale_point((box[0], box[1]), from_size, to_size)
+    right, bottom = _scale_point((box[2], box[3]), from_size, to_size)
+    return [left, top, right, bottom]
+
+
+def _scale_polygon(polygon, from_size, to_size):
+    sx = to_size[0] / from_size[0]
+    sy = to_size[1] / from_size[1]
+    return [(x * sx, y * sy) for x, y in polygon]
+
+
+def _scale_polygons(polygons, from_size, to_size):
+    return [_scale_polygon(polygon, from_size, to_size) for polygon in polygons]
+
+
+def _scale_boxes(boxes, from_size, to_size):
+    sx = to_size[0] / from_size[0]
+    sy = to_size[1] / from_size[1]
+    return [(left * sx, top * sy, right * sx, bottom * sy)
+            for left, top, right, bottom in boxes]
+
+
+def _resize_mask(mask, size):
+    if mask.shape[1] == size[0] and mask.shape[0] == size[1]:
+        return mask.astype(np.uint8)
+    img = Image.fromarray(mask.astype(np.uint8) * 255)
+    resized = img.resize(size, _resample("NEAREST"))
+    return (np.array(resized) > 0).astype(np.uint8)
 
 
 class SAM2Plus(LabelStudioMLBase):
@@ -189,7 +252,8 @@ class SAM2Plus(LabelStudioMLBase):
 
 
     def _sam_predict(self, img_url, point_coords=None, point_labels=None, input_box=None,
-                     task=None, patch_kwargs=None, return_format=None, postprocess_cfg=None):
+                     task=None, fullframe_resize=None, patch_kwargs=None,
+                     return_format=None, postprocess_cfg=None):
         logger.info('MODEL _sam_predict')
 
         cache_dir = '/cache'
@@ -202,15 +266,37 @@ class SAM2Plus(LabelStudioMLBase):
         mask_path_cache_patch = image_path_cache.replace('.jpg', '.mask.patch.npy')
 
         image = Image.open(image_path).convert("RGB")
+        original_size = image.size
         return_format = return_format or normalize_extra_params({}).return_format.as_dict()
-        logger.debug(f'patch_kwargs={patch_kwargs} return_format={return_format} '
+        logger.debug(f'fullframe_resize={fullframe_resize} patch_kwargs={patch_kwargs} '
+                     f'return_format={return_format} '
                      f'postprocess_cfg={postprocess_cfg}')
 
+        working_image = image
+        working_size = original_size
+        if fullframe_resize is not None:
+            resized_size = _resize_target(
+                fullframe_resize, original_size, "extra_params.fullframe_resize")
+            if resized_size != original_size:
+                working_image = image.resize(resized_size, _resample("LANCZOS"))
+                if point_coords:
+                    point_coords = _scale_points(point_coords, original_size, resized_size)
+                if input_box:
+                    input_box = _scale_box(input_box, original_size, resized_size)
+                working_size = resized_size
+
         cropper = None
-        sam_image = image
+        sam_image = working_image
         if patch_kwargs is not None:
-            cropper = CropMapper(image, **patch_kwargs)
-            image2 = image.copy()
+            candidate = CropMapper(working_image, **patch_kwargs)
+            if candidate.exceeds_image(box=input_box, point_coords=point_coords):
+                logger.warning(
+                    'prompt region too large to subpatch within source image %s; '
+                    'reverting to full-frame inference', working_size)
+            else:
+                cropper = candidate
+        if cropper is not None:
+            image2 = working_image.copy()
             draw2 = ImageDraw.Draw(image2)
             if input_box:
                 draw2.rectangle(input_box, outline='red', width=5)
@@ -239,6 +325,7 @@ class SAM2Plus(LabelStudioMLBase):
                     draw1.ellipse((x - 12, y - 12, x + 12, y + 12),
                                   outline='red', width=5)
                 img2.save(image_path_cache_patch.replace('.patch.', '.patch.bbox.'))
+
             sam_image.save(image_path_cache_patch)
 
         sam_array = np.array(sam_image)
@@ -277,6 +364,8 @@ class SAM2Plus(LabelStudioMLBase):
                 Image.fromarray(overlay).save(
                     image_path_cache.replace('.jpg', '.patch.mask_polygon.jpg'))
                 polygons = cropper.polygons_crop_to_full(polygons)
+            if working_size != original_size:
+                polygons = _scale_polygons(polygons, working_size, original_size)
             logger.info(f'MODEL _sam_predict: {len(polygons)} polygon(s)')
             return {
                 'polygons': polygons,
@@ -287,12 +376,17 @@ class SAM2Plus(LabelStudioMLBase):
             boxes = mask_to_rectangles(mask_sam)
             if cropper is not None:
                 boxes = cropper.boxes_crop_to_full(boxes)
+            if working_size != original_size:
+                boxes = _scale_boxes(boxes, working_size, original_size)
             return {
                 'boxes': boxes,
                 'probs': [prob] * len(boxes)
             }
 
-        mask = cropper.mask_crop_to_full(mask_sam) if cropper is not None else mask_sam
+        mask = (cropper.mask_crop_to_full(mask_sam)
+                if cropper is not None else mask_sam)
+        if working_size != original_size:
+            mask = _resize_mask(mask, original_size)
         if cropper is not None:
             Image.fromarray(mask_sam * 255).save(
                 mask_path_cache_patch.replace('.npy', '.jpg'))
@@ -308,7 +402,8 @@ class SAM2Plus(LabelStudioMLBase):
         logger.info(f'MODEL predict(tasks={tasks}, context={context})')
         extra_params = self.extra_params
         try:
-            patch_kwargs, return_format, postprocess_cfg = parse_extra_params(extra_params)
+            (fullframe_resize, patch_kwargs,
+             return_format, postprocess_cfg) = parse_extra_params(extra_params)
         except ValueError:
             logger.exception('invalid extra_params')
             raise
@@ -350,6 +445,7 @@ class SAM2Plus(LabelStudioMLBase):
                 point_labels=point_labels or None,
                 input_box=input_box,
                 task=tasks[0],
+                fullframe_resize=fullframe_resize,
                 patch_kwargs=patch_kwargs,
                 return_format=return_format,
                 postprocess_cfg=postprocess_cfg

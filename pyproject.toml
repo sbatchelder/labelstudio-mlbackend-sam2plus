@@ -1,0 +1,30 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "sam2bigimg"
+version = "0.0.2"
+description = "SAM2 Label Studio ML backend for large-image interactive segmentation"
+requires-python = ">=3.11"
+dependencies = [
+  "gunicorn==22.0.0",
+  "label-studio-ml @ git+https://github.com/HumanSignal/label-studio-ml-backend.git",
+  "Pillow",
+  "PyYAML",
+  "requests",
+]
+
+[project.optional-dependencies]
+test = [
+  "pytest",
+  "pytest-cov",
+]
+
+[project.scripts]
+probe = "probe.probe:main"
+sam2bigimg-probe = "probe.probe:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["probe*"]

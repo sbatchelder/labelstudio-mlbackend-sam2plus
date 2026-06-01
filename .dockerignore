@@ -1,11 +1,12 @@
 # Exclude everything
 **
 
-# Include requirements files (at repo root)
-!requirements*.txt
+# Include Python project metadata
+!pyproject.toml
 
 # Include the application source tree
+!src/
+!src/app/
 !src/app/**
-
-# Exclude specific requirements if necessary
-# requirements-test.txt (Uncomment if you decide to exclude this)
+!src/probe/
+!src/probe/**

@@ -28,14 +28,11 @@ RUN mamba install nvidia/label/cuda-12.4.0::cuda -y
 ENV CUDA_HOME=/opt/conda \
     TORCH_CUDA_ARCH_LIST="6.0;6.1;7.0;7.5;8.0;8.6+PTX;8.9;9.0"
 
-# install base requirements
-COPY requirements-base.txt .
+# install Python project dependencies
+COPY pyproject.toml .
+COPY ./src/probe ./src/probe
 RUN --mount=type=cache,target=${PIP_CACHE_DIR},sharing=locked \
-    pip install -r requirements-base.txt
-
-COPY requirements.txt .
-RUN --mount=type=cache,target=${PIP_CACHE_DIR},sharing=locked \
-    pip3 install -r requirements.txt
+    pip install -e .
 
 # install segment-anything-2
 RUN cd / && git clone --depth 1 --branch main --single-branch https://github.com/facebookresearch/sam2.git
@@ -46,12 +43,10 @@ RUN cd checkpoints && ./download_ckpts.sh
 
 WORKDIR /app
 
-# install test requirements if needed
-COPY requirements-test.txt .
-# build only when TEST_ENV="true"
+# install test dependencies if needed
 RUN --mount=type=cache,target=${PIP_CACHE_DIR},sharing=locked \
     if [ "$TEST_ENV" = "true" ]; then \
-      pip3 install -r requirements-test.txt; \
+      pip install -e ".[test]"; \
     fi
 
 COPY ./src/app ./

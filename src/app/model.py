@@ -2,7 +2,6 @@ import torch
 import numpy as np
 import os
 import sys
-import json
 import pathlib
 from typing import List, Dict, Optional
 from uuid import uuid4
@@ -19,8 +18,8 @@ from sam2.sam2_image_predictor import SAM2ImagePredictor
 
 from seg_cropper import CropMapper, Box
 from postprocess import (filter_components, fill_holes, dilate_mask,
-                         mask_to_polygons, mask_to_rectangles, draw_polygons,
-                         POLYGON_DEFAULTS)
+                         mask_to_polygons, mask_to_rectangles, draw_polygons)
+from schemas import normalize_extra_params
 
 import logging
 logger=logging.getLogger(__name__)
@@ -54,92 +53,19 @@ def box_xwyh2xyxy(box:Box) -> Box:
     return x,y,x+w,y+h
 
 
-# extra_params.subpatching keys forwarded to CropMapper; everything else is handled here.
-_PATCHMAPPER_KEYS = {'patch_size', 'mode', 'padding_fill', 'allow_size_override',
-                    'oversize_padding'}
-
-_RETURN_FORMATS = {
-    'brushlabel': {
-        'type': 'BrushLabels', 'tag': 'BrushLabels', 'result_type': 'brushlabels',
-        'label_key': 'brushlabels',
-    },
-    'brush': {
-        'type': 'Brush', 'tag': 'Brush', 'result_type': 'brush',
-        'label_key': None,
-    },
-    'polygonlabel': {
-        'type': 'PolygonLabels', 'tag': 'PolygonLabels', 'result_type': 'polygonlabels',
-        'label_key': 'polygonlabels',
-    },
-    'polygon': {
-        'type': 'Polygon', 'tag': 'Polygon', 'result_type': 'polygon',
-        'label_key': None,
-    },
-    'rectanglelabel': {
-        'type': 'RectangleLabels', 'tag': 'RectangleLabels', 'result_type': 'rectanglelabels',
-        'label_key': 'rectanglelabels',
-    },
-    'rectangle': {
-        'type': 'Rectangle', 'tag': 'Rectangle', 'result_type': 'rectangle',
-        'label_key': None,
-    },
-}
-
 _POLYGON_TYPES = {'PolygonLabels', 'Polygon'}
 _RECTANGLE_TYPES = {'RectangleLabels', 'Rectangle'}
 _VECTOR_TYPES = _POLYGON_TYPES | _RECTANGLE_TYPES
 
 
-def normalize_return_format(return_format=None):
-    cfg = dict(return_format or {})
-    requested = cfg.pop('type', 'BrushLabel')
-    key = str(requested).replace('Labels', 'Label').lower()
-    if key not in _RETURN_FORMATS:
-        raise ValueError(f'unsupported return_format.type: {requested!r}')
-    out = dict(_RETURN_FORMATS[key])
-    if out['type'] in _POLYGON_TYPES:
-        polygon_cfg = dict(POLYGON_DEFAULTS)
-        polygon_cfg.update(cfg)
-        out.update(polygon_cfg)
-    elif cfg:
-        logger.warning(f'ignoring return_format keys for {out["type"]}: {sorted(cfg)}')
-    return out
-
-
 def parse_extra_params(extra_params):
     """Split extra_params into (patch kwargs, return format, postprocess config)."""
-    extra = dict(extra_params or {})
-    subpatching = extra.pop('subpatching', None) or {}
-    if not isinstance(subpatching, dict):
-        raise ValueError('extra_params.subpatching must be an object')
-    return_format = normalize_return_format(extra.pop('return_format', None))
-    postprocess = extra.pop('postprocess', None) or {}
-
-    patch_kwargs = {}
-    for key, value in subpatching.items():
-        if key in _PATCHMAPPER_KEYS:
-            patch_kwargs['crop_size' if key == 'patch_size' else key] = value
-        else:
-            logger.warning(f'ignoring unknown extra_params.subpatching key: {key!r}')
-
-    for key in extra:
-        logger.warning(f'ignoring unknown extra_params key: {key!r}')
-
-    # hyphenated keys (e.g. "fill-holes") are accepted and normalised.
-    postprocess = {k.replace('-', '_'): v for k, v in dict(postprocess).items()}
-    postprocess_cfg = {
-        'mask_size_threshold': 1.0 if return_format['type'] in _VECTOR_TYPES else 0.0,
-        'fill_holes': return_format['type'] in _VECTOR_TYPES,
-        'dilate': 0,
-    }
-    for key in postprocess_cfg:
-        if key in postprocess:
-            postprocess_cfg[key] = postprocess[key]
-
-    if return_format['type'] in _POLYGON_TYPES and not postprocess_cfg['fill_holes']:
-        raise ValueError('postprocess.fill_holes must be true when return_format.type is Polygon/PolygonLabels '
-                          'is set (a polygon ring cannot represent a hole)')
-    return patch_kwargs, return_format, postprocess_cfg
+    cfg = normalize_extra_params(extra_params)
+    return (
+        cfg.subpatching.cropper_kwargs(),
+        cfg.return_format.as_dict(),
+        cfg.postprocess.as_dict(),
+    )
 
 
 class SAM2Plus(LabelStudioMLBase):
@@ -151,6 +77,15 @@ class SAM2Plus(LabelStudioMLBase):
         """
         logging.info('SAM2Plus setup')
         self.set("model_version", "0.0.2")
+
+    def set_extra_params(self, extra_params):
+        try:
+            normalize_extra_params(extra_params)
+        except ValueError as exc:
+            msg = f"invalid extra_params: {exc}"
+            logger.exception(msg)
+            raise ValueError(msg) from exc
+        super().set_extra_params(extra_params)
 
     def _prediction_response(self, results, probs):
         total_prob = sum(probs)
@@ -310,7 +245,7 @@ class SAM2Plus(LabelStudioMLBase):
             draw2.rectangle(input_box, outline='red', width=5)
             image2.save(image_path_cache.replace('.jpg','.bbox.jpg'))
 
-        return_format = return_format or normalize_return_format()
+        return_format = return_format or normalize_extra_params({}).return_format.as_dict()
         logger.debug(f'patch_kwargs={patch_kwargs} return_format={return_format} '
                      f'postprocess_cfg={postprocess_cfg}')
 
@@ -408,7 +343,11 @@ class SAM2Plus(LabelStudioMLBase):
         """ Returns the predicted mask/polygon for a smart prompt that was placed."""
         logger.info(f'MODEL predict(tasks={tasks}, context={context})')
         extra_params = self.extra_params
-        patch_kwargs, return_format, postprocess_cfg = parse_extra_params(extra_params)
+        try:
+            patch_kwargs, return_format, postprocess_cfg = parse_extra_params(extra_params)
+        except ValueError:
+            logger.exception('invalid extra_params')
+            raise
         stock = not extra_params  # no extra_params -> unmodified upstream behaviour
         control_tag = return_format['tag']
         from_name, to_name, value = self.get_first_tag_occurence(control_tag, 'Image')
@@ -451,16 +390,20 @@ class SAM2Plus(LabelStudioMLBase):
                 task=tasks[0]
             )
         else:
-            predictor_results = self._sam_predict(
-                img_url=img_url,
-                point_coords=point_coords or None,
-                point_labels=point_labels or None,
-                input_box=input_box,
-                task=tasks[0],
-                patch_kwargs=patch_kwargs,
-                return_format=return_format,
-                postprocess_cfg=postprocess_cfg
-            )
+            try:
+                predictor_results = self._sam_predict(
+                    img_url=img_url,
+                    point_coords=point_coords or None,
+                    point_labels=point_labels or None,
+                    input_box=input_box,
+                    task=tasks[0],
+                    patch_kwargs=patch_kwargs,
+                    return_format=return_format,
+                    postprocess_cfg=postprocess_cfg
+                )
+            except ValueError:
+                logger.exception('prediction request failed')
+                raise
 
         if return_format['type'] in _POLYGON_TYPES:
             predictions = self.get_polygon_results(

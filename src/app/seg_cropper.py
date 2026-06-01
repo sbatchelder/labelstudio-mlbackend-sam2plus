@@ -13,7 +13,7 @@ class CropMapper:
     def __init__(self, img:Image.Image, crop_size: Union[int, Dims]=1024,
                  mode: Literal['default', 'padding'] = 'default',
                  padding_fill: Union[str, Tuple[int, int, int]] = 'black',
-                 allow_size_override:bool = True,
+                 allow_oversize:bool = True,
                  oversize_padding: float = 0.05):
 
         if isinstance(crop_size, int):
@@ -27,7 +27,7 @@ class CropMapper:
         self.fill = padding_fill
         self.offset: Point = (0, 0)  # Offset from full image to cropped coords
         self.mode = mode
-        self.allow_size_override = allow_size_override
+        self.allow_oversize = allow_oversize
         self.oversize_padding = 1+oversize_padding
 
 
@@ -61,8 +61,11 @@ class CropMapper:
 
         # adjust size if needed
         if width > self.size[0] or height > self.size[1]:
-            if not self.allow_size_override:
-                raise NotImplementedError
+            if not self.allow_oversize:
+                raise ValueError(
+                    f"prompt region {(width, height)} exceeds patch size {self.size} "
+                    "and extra_params.subpatching.allow-oversize is false"
+                )
             largest = max(width, height)
             largest_plus = largest * self.oversize_padding  # eg 1.05 is 5% larger
             largest_plus = largest_plus + largest_plus % 2  # ensure even number
@@ -180,4 +183,3 @@ class CropMapper:
             mask_full[dst_y0:dst_y1, dst_x0:dst_x1] = mask_crop[src_y0:src_y1, src_x0:src_x1]
 
         return mask_full
-

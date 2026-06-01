@@ -218,7 +218,9 @@ optionally post-process, and optionally return polygons instead of brush masks.
 
 `extra_params` are static per-project values. Label Studio sends them to the
 backend's `/setup` endpoint; for local testing `sam2plus-probe` does the same via
-`--extra-params` (see below). Unknown keys are logged as warnings and ignored.
+`--extra-params` (see below). Keys may use underscores or dashes; dashes are
+normalized to underscores internally. Unknown or misplaced keys raise an error
+instead of being ignored.
 
 ### Subpatching (`subpatching`)
 
@@ -227,25 +229,27 @@ Patch options live under the top-level `subpatching` object and are forwarded to
 
 | Key | Default | Meaning |
 |-----|---------|---------|
-| `patch_size` | `1024` | patch edge length in px — an int (square) or `[width, height]` |
+| `patch_size` / `patch-size` | `1024` | patch edge length in px — an int (square) or `[width, height]` |
 | `mode` | `"default"` | `default` keeps the patch inside the image bounds; `padding` centers it on the prompt and pads past edges |
-| `padding_fill` | `"black"` | fill color used by `padding` mode |
-| `allow_size_override` | `true` | grow the patch when the prompt box is larger than `patch_size` |
-| `oversize_padding` | `0.05` | extra fractional margin added when the patch is grown to fit an oversized box |
+| `padding_fill` / `padding-fill` | `"black"` | fill color used by `padding` mode |
+| `allow_oversize` / `allow-oversize` | `true` | grow the patch when the prompt box is larger than `patch_size`; if `false`, oversized prompts return an error |
+| `oversize_padding` / `oversize-padding` | `0.05` | extra fractional margin added when the patch is grown to fit an oversized box |
 
 ### Return format (`return_format`)
 
 Set `return_format.type` to choose the Label Studio result geometry:
-`BrushLabel` (default), `Brush`, `PolygonLabel`, `Polygon`, `RectangleLabel`,
-or `Rectangle`. The `*Label` variants include the configured label value in
-the returned region; the unlabeled variants do not.
+`BrushLabels` (default), `Brush`, `PolygonLabels`, `Polygon`,
+`RectangleLabels`, or `Rectangle`. The `*Labels` variants include the
+configured label value in the returned region; the unlabeled variants do not.
+This field is case-insensitive, so `brushlabels` is accepted. Singular
+`BrushLabel` / `PolygonLabel` / `RectangleLabel` forms are invalid.
 
 Polygon formats accept these additional `return_format` keys:
 
 | Key | Default | Meaning |
 |-----|---------|---------|
-| `epsilon` | `1` | Douglas–Peucker simplification tolerance. `< 1` is treated as a fraction of the contour perimeter (resolution-independent); `>= 1` is an absolute distance in crop pixels. Larger = fewer, coarser vertices. |
-| `max_points` | `100` | hard cap on vertices per polygon; `epsilon` is raised by a binary search until the cap is met |
+| `epsilon` | `1` | Douglas–Peucker simplification tolerance. `>= 1` is an absolute distance in crop pixels. `< 1` is treated as a fraction of the contour perimeter, so useful values are usually small, for example `0.003`. Larger = fewer, coarser vertices. |
+| `max_points` / `max-points` | `100` | hard cap on vertices per polygon; `epsilon` is raised by a binary search until the cap is met |
 
 The selected output requires a matching control tag in the labeling config:
 `<BrushLabels>`, `<Brush>`, `<PolygonLabels>`, `<Polygon>`,
@@ -258,8 +262,8 @@ Applied to the binary mask before it is turned into a brush mask or polygons:
 
 | Key | Default (brush / polygon) | Meaning |
 |-----|---------------------------|---------|
-| `mask_size_threshold` | `0` / `1` | keep connected components whose area ≥ threshold × the largest component. `1` = largest blob only; `0.5` = blobs at least half its size; `0` = keep everything |
-| `fill_holes` | `false` / `true` | fill the interior holes of each blob. Must be `true` for polygon return formats (a polygon ring cannot encode a hole) — otherwise the request errors |
+| `mask_size_threshold` / `mask-size-threshold` | `0` / `1` | keep connected components whose area ≥ threshold × the largest component. `1` = largest blob only; `0.5` = blobs at least half its size; `0` = keep everything |
+| `fill_holes` / `fill-holes` | `false` / `true` | fill the interior holes of each blob. Must be `true` for polygon return formats (a polygon ring cannot encode a hole) — otherwise the request errors |
 | `dilate` | `0` | inflate the mask outward (morphological dilation) so polygon points/edges sit just outside the true boundary instead of biting into the object. An **int** is an absolute distance in crop pixels; a **float** is a fraction of the mask's equivalent-circle radius `sqrt(area / π)` (scales with object size). `0` / `0.0` = no-op |
 
 With polygon or rectangle return formats and `mask_size_threshold < 1`,
@@ -273,7 +277,7 @@ Post-processing runs in order: `mask_size_threshold` → `fill_holes` →
 ```json
 {
   "subpatching": { "patch_size": 1024 },
-  "return_format": { "type": "PolygonLabel", "epsilon": 1, "max_points": 100 },
+  "return_format": { "type": "PolygonLabels", "epsilon": 0.003, "max_points": 100 },
   "postprocess": { "mask_size_threshold": 1, "fill_holes": true, "dilate": 0 }
 }
 ```

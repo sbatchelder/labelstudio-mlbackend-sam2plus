@@ -34,18 +34,31 @@ _INT_RE = re.compile(r"^[+-]?\d+$")
 
 _FORMATS = {
     "brushlabel": ("BrushLabels", "brushlabels", "brushlabels", True),
+    "brushlabels": ("BrushLabels", "brushlabels", "brushlabels", True),
     "brush": ("Brush", "brush", None, False),
     "polygonlabel": ("PolygonLabels", "polygonlabels", "polygonlabels", True),
+    "polygonlabels": ("PolygonLabels", "polygonlabels", "polygonlabels", True),
     "polygon": ("Polygon", "polygon", None, False),
     "rectanglelabel": ("RectangleLabels", "rectanglelabels", "rectanglelabels", True),
+    "rectanglelabels": ("RectangleLabels", "rectanglelabels", "rectanglelabels", True),
     "rectangle": ("Rectangle", "rectangle", None, False),
     "keypointlabel": ("KeyPointLabels", "keypointlabels", "keypointlabels", True),
+    "keypointlabels": ("KeyPointLabels", "keypointlabels", "keypointlabels", True),
     "keypoint": ("KeyPoint", "keypoint", None, False),
+}
+
+_RETURN_FORMAT_KEYS = {
+    "brushlabels",
+    "brush",
+    "polygonlabels",
+    "polygon",
+    "rectanglelabels",
+    "rectangle",
 }
 
 
 def normalize_type(value):
-    key = str(value).replace("Labels", "Label").lower()
+    key = str(value).lower()
     if key not in _FORMATS:
         raise SystemExit(f"error: unsupported tag type: {value}")
     tag, result_type, label_key, labeled = _FORMATS[key]
@@ -57,6 +70,13 @@ def normalize_type(value):
         "label_key": label_key,
         "labeled": labeled,
     }
+
+
+def normalize_return_type(value):
+    key = str(value).lower()
+    if key not in _RETURN_FORMAT_KEYS:
+        raise SystemExit(f"error: unsupported return_format.type: {value}")
+    return normalize_type(value)
 
 
 def _load_yaml(path):
@@ -171,8 +191,8 @@ def return_format(args_or_dict):
     else:
         extra_path = args_or_dict.extra_params
     extra = _load_json_object(extra_path)
-    cfg = extra.get("return_format") or {"type": "BrushLabel"}
-    fmt = normalize_type(cfg.get("type", "BrushLabel"))
+    cfg = extra.get("return_format") or {"type": "BrushLabels"}
+    fmt = normalize_return_type(cfg.get("type", "BrushLabels"))
     return fmt
 
 

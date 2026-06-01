@@ -139,7 +139,7 @@ def bigimg_polygon_project(backend, seeded_image):
                 "dilate": 0.05,
             },
             "return_format": {
-                "type": "PolygonLabel",
+                "type": "PolygonLabels",
                 "epsilon": 0.003,
                 "max_points": 50,
             },

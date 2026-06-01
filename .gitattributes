@@ -1,0 +1,4 @@
+# Redact API tokens from env files when staged, if the local Git filter is
+# configured. See README "Secret Redaction".
+*.env filter=envsecrets
+envs/*.env filter=envsecrets

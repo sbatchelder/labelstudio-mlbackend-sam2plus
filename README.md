@@ -26,19 +26,48 @@ Without this, masks for small objects in large scenes loose definition, since SA
 
 ## TODOs
 - ~~customize crop area (pixel size, fraction-increase of input bbox)~~ — done: `crop_size` / `oversize_padding` (see [Model parameters](#model-parameters-extra_params))
-- mask cleanup: ~~single-mask, fill gaps~~ done via `postprocess`; grow/smooth edges still open
-- allow multiple labelstudio instances to use endpoint
-- Labelstudio Host, API Key, host-port, target GPU as .env variables.
+- mask cleanup: ~~single-mask, fill gaps, grow edges~~ done via `postprocess`; smooth edges still open
+- ~~allow multiple labelstudio instances to use endpoint~~ — done via `multi-compose.yml`
+- ~~Labelstudio Host, API Key, host-port, target GPU as .env variables~~ — done via `envs/`
 - ~~easy endpoint testing from within project but outside running container~~ — done: `probe.py`
 
-## Configuration
+## Deployment
 
-In `compose.yml`, update container name to avoid collisions with other ML-Backends and provide your LABEL_STUDIO_URL and LABEL_STUDIO_API_KEY (legacy tokens only).
+Build and run with Docker Compose. The project has two compose entry points:
 
-## Installation
+- `compose.yml` runs one backend instance using `envs/SINGLE.env` plus one target env.
+- `multi-compose.yml` runs the non-local targets together (`brick` and `ichthyolith`) from one shared image.
+
+Populate `data/model-store/` with SAM2 checkpoints before first run, or set
+`MODEL_STORE` in the env file to another populated checkpoint directory.
+
+Single local/probe instance:
+
+```bash
+docker compose -f compose.yml --env-file envs/SINGLE.env --env-file envs/localhost.env up -d --build
 ```
-docker compose build
-docker compose up -d
+
+Single production target:
+
+```bash
+docker compose -f compose.yml --env-file envs/SINGLE.env --env-file envs/ichthyolith.env up -d --build
+docker compose -f compose.yml --env-file envs/SINGLE.env --env-file envs/brick.env up -d --build
+```
+
+Multi-target run:
+
+```bash
+docker compose -f multi-compose.yml --env-file envs/MULTI.env up -d --build sam2-build brick ichthyolith
+```
+
+`sam2-build` builds the shared image and exits cleanly; `brick` and
+`ichthyolith` reference that image with their own ports, cache volumes, and
+Label Studio settings.
+
+Validate a running backend:
+
+```bash
+curl http://localhost:22202/health
 ```
 
 ## Initial Project Setup Notes
@@ -141,26 +170,12 @@ This means all three control tags should be represented in your labeling configu
 ```
 
 
-## Running with Docker
-
-1. Start Machine Learning backend on `http://localhost:9090` with prebuilt image:
-
-```bash
-docker-compose up
-```
-
-2. Validate that backend is running
-
-```bash
-$ curl http://localhost:9090/
-{"status":"UP"}
-```
-
-3. Connect to the backend from Label Studio running on the same host: go to your project `Settings -> Machine Learning -> Add Model` and specify `http://localhost:9090` as a URL.
-
-
 ## Configuration
-Parameters can be set in `docker-compose.yml` before running the container.
+Parameters are split across env files:
+
+- `envs/SINGLE.env` — defaults for one `compose.yml` instance.
+- `envs/MULTI.env` — defaults for `multi-compose.yml` and the shared image name.
+- `envs/localhost.env`, `envs/brick.env`, `envs/ichthyolith.env` — target-specific ports, container names, cache dirs, GPU, and Label Studio URL/API key.
 
 
 The following common parameters are available:
@@ -172,6 +187,25 @@ The following common parameters are available:
 - `LOG_LEVEL` - set the log level for the model server
 - `WORKERS` - specify the number of workers for the model server
 - `THREADS` - specify the number of threads for the model server
+- `HOST_PORT` - host port that maps to container port `9090` in single-instance mode
+- `HOST_GPU` - GPU device id exposed to the container
+- `SERVER_DIR` - host directory mounted at `/data`
+- `CACHE_DIR` - host directory mounted at `/cache`
+- `MODEL_STORE` - host checkpoint directory mounted read-only at `/sam2/checkpoints`
+
+### Secret Redaction
+
+Env files are marked in `.gitattributes` for the `envsecrets` Git clean
+filter. Configure it once per clone before staging env files:
+
+```bash
+git config filter.envsecrets.clean '.venv/bin/python scripts/clean-env-secrets.py'
+git config filter.envsecrets.smudge cat
+```
+
+After that, staged env-file content redacts `LABEL_STUDIO_API_KEY`,
+`LABEL_STUDIO_ACCESS_TOKEN`, and `BASIC_AUTH_PASS` values. The working tree
+keeps the real values.
 
 
 ## Model parameters (`extra_params`)
@@ -220,9 +254,13 @@ Applied to the binary mask before it is turned into a brush mask or polygons:
 |-----|---------------------------|---------|
 | `mask_size_threshold` | `0` / `1` | keep connected components whose area ≥ threshold × the largest component. `1` = largest blob only; `0.5` = blobs at least half its size; `0` = keep everything |
 | `fill_holes` | `false` / `true` | fill the interior holes of each blob. Must be `true` when `as_polygon` is set (a polygon ring cannot encode a hole) — otherwise the request errors |
+| `dilate` | `0` | inflate the mask outward (morphological dilation) so polygon points/edges sit just outside the true boundary instead of biting into the object. An **int** is an absolute distance in crop pixels; a **float** is a fraction of the mask's equivalent-circle radius `sqrt(area / π)` (scales with object size). `0` / `0.0` = no-op |
 
 With `as_polygon` and `mask_size_threshold < 1`, multiple surviving blobs
 produce multiple polygon regions.
+
+Post-processing runs in order: `mask_size_threshold` → `fill_holes` →
+`dilate`, so noise blobs are dropped before the mask is inflated.
 
 ### Example
 
@@ -230,7 +268,7 @@ produce multiple polygon regions.
 {
   "crop_size": 1024,
   "as_polygon": { "epsilon": 1, "max_points": 100 },
-  "postprocess": { "mask_size_threshold": 1, "fill_holes": true }
+  "postprocess": { "mask_size_threshold": 1, "fill_holes": true, "dilate": 0 }
 }
 ```
 
@@ -245,8 +283,8 @@ saves the prediction JSON — no Label Studio server required. It re-encodes the
 image into the backend's bind-mounted cache so `/predict` resolves it offline.
 
 ```bash
-pip install -r requirements-test.txt
-python probe.py [IMAGE] [--bbox X Y W H] [-o OUTDIR] [--extra-args FILE] [--url URL]
+.venv/bin/python -m pip install -r requirements-test.txt
+.venv/bin/python probe.py [IMAGE] [--bbox X Y W H] [-o OUTDIR] [--extra-args FILE] [--url URL]
 ```
 
 - `IMAGE` and `--bbox` default to a bundled example (COCO object 69), so
@@ -264,6 +302,12 @@ mode, `crop.mask_polygon.jpg` (the crop with the polygon drawn in red).
 
 > `probe.py` applies `extra_params` with a `/setup` call and reads them back in
 > the following `/predict` call, keyed by a shared project id. This only works
-> when the backend runs a **single worker** (`WORKERS=1`, as docker-compose sets).
+> when the backend runs a **single worker** (`WORKERS=1`, as the env files set).
 
-Automated API tests live in `test_api.py` (`pytest test_api.py`).
+Automated API tests live under `tests/`:
+
+```bash
+.venv/bin/python -m pytest tests/regular -v
+.venv/bin/python -m pytest tests/bigimg -v
+.venv/bin/python -m pytest tests -v
+```

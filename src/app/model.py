@@ -255,7 +255,12 @@ class SAM2_BigImg(LabelStudioMLBase):
             img2.save(image_path_cache_cropped.replace('.crop.','.crop.bbox.'))
         else:
             logger.info(point_coords)
-            img = cropper.crop(point_coords)  # todo check these dont neeed to be inverse
+            img = cropper.crop(point_coords)
+            point_coords = [
+                [int(x - cropper.offx), int(y - cropper.offy)]
+                for x, y in point_coords
+            ]
+            logger.debug(f'offset_point_coords: {point_coords}')
         img.save(image_path_cache_cropped)
 
         img = np.array(img)

@@ -1,0 +1,52 @@
+
+services:
+  ml-backend:
+    # Set per-instance in envs/<target>.env so two instances don't collide.
+    container_name: ${CONTAINER_NAME:?set CONTAINER_NAME in envs/<target>.env}
+    image: humansignal/ml-backend:v0
+    build:
+      context: .
+      args:
+        TEST_ENV: False
+
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              device_ids: ['${HOST_GPU:-0}']
+              capabilities: [ gpu ]
+
+    environment:
+      # basic auth for the model server (blank = disabled)
+      - BASIC_AUTH_USER=${BASIC_AUTH_USER:-}
+      - BASIC_AUTH_PASS=${BASIC_AUTH_PASS:-}
+      # log level for the model server
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      # gunicorn workers / threads
+      - WORKERS=${WORKERS:-1}
+      - THREADS=${THREADS:-8}
+      # label_studio_ml model dir (sqlite cache.db lives here; container path)
+      - MODEL_DIR=/data/models
+      # compute device
+      - DEVICE=${DEVICE:-cuda}
+      # SAM2 model config and checkpoint
+      - MODEL_CONFIG=${MODEL_CONFIG:-configs/sam2.1/sam2.1_hiera_l.yaml}
+      - MODEL_CHECKPOINT=${MODEL_CHECKPOINT:-sam2.1_hiera_large.pt}
+      # Label Studio instance this container serves
+      - LABEL_STUDIO_URL=${LABEL_STUDIO_URL:?set LABEL_STUDIO_URL in envs/<target>.env}
+      - LABEL_STUDIO_API_KEY=${LABEL_STUDIO_API_KEY:?set LABEL_STUDIO_API_KEY in envs/<target>.env}
+
+    ports:
+      - "${HOST_PORT:?set HOST_PORT in envs/<target>.env}:9090"
+
+    volumes:
+      # Per-instance server data (sqlite cache.db) and image cache. Give each
+      # instance its own dirs in envs/<target>.env so two never share a cache
+      # (cross-tenant leak). probe.py seeds images straight into CACHE_DIR.
+      - "${SERVER_DIR:?set SERVER_DIR in envs/<target>.env}:/data"
+      - "${CACHE_DIR:?set CACHE_DIR in envs/<target>.env}:/cache"
+      # Shared, read-only SAM2 checkpoint store. MUST be populated before first
+      # `up` -- an empty dir here shadows the checkpoints baked into the image.
+      # One-time populate: see README.
+      - "${MODEL_STORE:-./data/model-store}:/sam2/checkpoints:ro"

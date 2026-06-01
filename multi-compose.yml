@@ -1,0 +1,59 @@
+services:
+  sam2-build:
+    image: ${SAM2_IMAGE:-sam2bigimg:local}
+    build:
+      context: .
+      args:
+        TEST_ENV: False
+    entrypoint: ["/bin/sh", "-lc"]
+    command: ["echo built ${SAM2_IMAGE:-sam2bigimg:local}"]
+
+  brick:
+    container_name: SAM2BigImg-brick
+    image: ${SAM2_IMAGE:-sam2bigimg:local}
+    depends_on:
+      sam2-build:
+        condition: service_completed_successfully
+    env_file:
+      - envs/MULTI.env
+      - envs/brick.env
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              device_ids: ['${HOST_GPU:-0}']
+              capabilities: [ gpu ]
+    environment:
+      - MODEL_DIR=/data/models
+    ports:
+      - "22203:9090"
+    volumes:
+      - "./data/brick/server:/data"
+      - "./data/brick/cache:/cache"
+      - "${MODEL_STORE:-./data/model-store}:/sam2/checkpoints:ro"
+
+  ichthyolith:
+    container_name: SAM2BigImg-ichthyolith
+    image: ${SAM2_IMAGE:-sam2bigimg:local}
+    depends_on:
+      sam2-build:
+        condition: service_completed_successfully
+    env_file:
+      - envs/MULTI.env
+      - envs/ichthyolith.env
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              device_ids: ['${HOST_GPU:-0}']
+              capabilities: [ gpu ]
+    environment:
+      - MODEL_DIR=/data/models
+    ports:
+      - "22202:9090"
+    volumes:
+      - "./data/ichthyolith/server:/data"
+      - "./data/ichthyolith/cache:/cache"
+      - "${MODEL_STORE:-./data/model-store}:/sam2/checkpoints:ro"

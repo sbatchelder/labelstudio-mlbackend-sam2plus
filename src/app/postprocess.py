@@ -22,7 +22,7 @@ Polygon = List[Point]
 # Iterations of the epsilon binary search used to honour `max_points`.
 _EPSILON_SEARCH_STEPS = 12
 
-# Defaults for the `as_polygon` expression.
+# Defaults for polygon return formats.
 # epsilon 1.0 -> pixel mode, 1px tolerance (the faithful end of the range).
 POLYGON_DEFAULTS = {"epsilon": 1.0, "max_points": 100}
 
@@ -123,15 +123,30 @@ def mask_to_polygons(mask: np.ndarray, epsilon: float, max_points: int) -> List[
     return polygons
 
 
+def mask_to_rectangles(mask: np.ndarray):
+    """Return connected-component bounding boxes as (x0, y0, x1, y1)."""
+    mask = mask.astype(np.uint8)
+    count, labels, stats, _ = cv2.connectedComponentsWithStats(mask, connectivity=8)
+    boxes = []
+    for label in range(1, count):  # row 0 is background
+        x = int(stats[label, cv2.CC_STAT_LEFT])
+        y = int(stats[label, cv2.CC_STAT_TOP])
+        w = int(stats[label, cv2.CC_STAT_WIDTH])
+        h = int(stats[label, cv2.CC_STAT_HEIGHT])
+        if w > 0 and h > 0:
+            boxes.append((x, y, x + w, y + h))
+    return boxes
+
+
 def draw_polygons(rgb: np.ndarray, polygons: List[Polygon],
                   line_thickness: int = 1, vertex_radius: int = 3) -> np.ndarray:
-    """Return a copy of an RGB image with polygons drawn: thin red edges, red dots."""
+    """Return a copy of an RGB image with polygons drawn: thin green edges/dots."""
     out = np.ascontiguousarray(rgb.copy())
-    red = (255, 0, 0)  # RGB
+    green = (0, 190, 0)  # RGB
     for polygon in polygons:
         pts = np.array(polygon, dtype=np.int32).reshape(-1, 1, 2)
-        cv2.polylines(out, [pts], isClosed=True, color=red, thickness=line_thickness)
+        cv2.polylines(out, [pts], isClosed=True, color=green, thickness=line_thickness)
     for polygon in polygons:  # draw vertices last so they sit on top of the edges
         for x, y in polygon:
-            cv2.circle(out, (int(round(x)), int(round(y))), vertex_radius, red, -1)
+            cv2.circle(out, (int(round(x)), int(round(y))), vertex_radius, green, -1)
     return out

@@ -141,6 +141,21 @@ class CropMapper:
         return mapped
 
 
+    def boxes_crop_to_full(self, boxes):
+        """Map crop-coordinate boxes to full-image pixel coordinates."""
+        W, H = self.img.size
+        x0, y0 = self.offset
+        mapped = []
+        for left, top, right, bottom in boxes:
+            mapped.append((
+                min(max(left + x0, 0), W),
+                min(max(top + y0, 0), H),
+                min(max(right + x0, 0), W),
+                min(max(bottom + y0, 0), H),
+            ))
+        return mapped
+
+
     def mask_crop_to_full(self, mask_crop):
         W, H = self.img.size
         h, w = mask_crop.shape
@@ -165,5 +180,4 @@ class CropMapper:
             mask_full[dst_y0:dst_y1, dst_x0:dst_x1] = mask_crop[src_y0:src_y1, src_x0:src_x1]
 
         return mask_full
-
 

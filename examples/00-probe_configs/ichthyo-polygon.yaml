@@ -4,7 +4,7 @@ prompt:
   type: RectangleLabel
   label: probe
   geometry: [3909, 2408, 234, 320]
-extra_args: examples/02-extra_args/basic-polygon.json
+extra_params: examples/02-extra_params/basic-polygon.json
 request_record: examples/03-requests/${name}
 probe_fullframe_artifact_resize: 0.25
 intermediates: examples/04-intermediates/${name}

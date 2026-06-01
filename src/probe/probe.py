@@ -9,7 +9,6 @@ import re
 from pathlib import Path
 from string import Template
 from urllib.parse import urlparse
-from uuid import uuid4
 
 import numpy as np
 import requests
@@ -29,6 +28,7 @@ DEFAULT_PROMPT = {
     "geometry": [3909, 2408, 234, 320],
 }
 PROJECT_ID = "probe"
+PROBE_IMAGE_TOKEN = "stable"
 
 _INT_RE = re.compile(r"^[+-]?\d+$")
 
@@ -76,7 +76,7 @@ def _load_json_object(path):
         return {}
     file = Path(path)
     if not file.is_file():
-        raise SystemExit(f"error: extra-args file not found: {file}")
+        raise SystemExit(f"error: extra_params file not found: {file}")
     try:
         data = json.loads(file.read_text())
     except json.JSONDecodeError as exc:
@@ -95,7 +95,7 @@ def _parser():
                         help="YAML config file; CLI options override config values")
     parser.add_argument("--prompt", default=argparse.SUPPRESS,
                         help="JSON prompt object; YAML configs are clearer")
-    parser.add_argument("--extra-args", default=argparse.SUPPRESS,
+    parser.add_argument("--extra-params", default=argparse.SUPPRESS,
                         help="JSON file of backend extra_params")
     parser.add_argument("--url", default=argparse.SUPPRESS,
                         help=f"ML backend base URL (default: {DEFAULT_URL})")
@@ -135,7 +135,7 @@ def _merged_args(argv=None):
     merged = {
         "image": str(DEFAULT_IMAGE),
         "prompt": dict(DEFAULT_PROMPT),
-        "extra_args": None,
+        "extra_params": None,
         "url": DEFAULT_URL,
         "cache_dir": str(DEFAULT_CACHE_DIR),
         "timeout": 300.0,
@@ -167,9 +167,9 @@ def _merged_args(argv=None):
 
 def return_format(args_or_dict):
     if isinstance(args_or_dict, dict):
-        extra_path = args_or_dict.get("extra_args")
+        extra_path = args_or_dict.get("extra_params")
     else:
-        extra_path = args_or_dict.extra_args
+        extra_path = args_or_dict.extra_params
     extra = _load_json_object(extra_path)
     cfg = extra.get("return_format") or {"type": "BrushLabel"}
     fmt = normalize_type(cfg.get("type", "BrushLabel"))
@@ -223,7 +223,7 @@ def point_percent_to_pixels(point, width, height):
 
 def seed_image_into_cache(image_path, cache_dir):
     stem = Path(image_path).stem
-    url = f"http://sam2plus.probe/{uuid4().hex}/{stem}.jpg"
+    url = f"http://sam2plus.probe/{PROBE_IMAGE_TOKEN}/{stem}.jpg"
     digest = hashlib.md5(url.encode(), usedforsecurity=False).hexdigest()[:8]
     cache_name = f"{digest}__{os.path.basename(urlparse(url).path)}"
     dest = cache_dir / cache_name
@@ -384,7 +384,7 @@ def resize_image(image, scale):
     return image.resize(size)
 
 
-def save_request_artifacts(out_dir, image_path, prompt_shape, extra_args,
+def save_request_artifacts(out_dir, image_path, prompt_shape, extra_params,
                            predict_body, resize=None):
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -392,7 +392,7 @@ def save_request_artifacts(out_dir, image_path, prompt_shape, extra_args,
         input_image = draw_prompt(im, prompt_shape)
         input_image = resize_image(input_image, resize)
         input_image.save(out_dir / "input.jpg", "JPEG", quality=95)
-    (out_dir / "POST-setup.json").write_text(json.dumps(extra_args, indent=2))
+    (out_dir / "POST-setup.json").write_text(json.dumps(extra_params, indent=2))
     (out_dir / "POST-predict.json").write_text(json.dumps(predict_body, indent=2))
 
 
@@ -506,7 +506,7 @@ def main(argv=None):
     if not image_path.is_file():
         raise SystemExit(f"error: image not found: {image_path}")
 
-    extra_args = _load_json_object(args.extra_args)
+    extra_params = _load_json_object(args.extra_params)
     output_format = return_format(args)
     cache_dir = Path(args.cache_dir).expanduser().resolve()
     base_url = args.url.rstrip("/")
@@ -518,7 +518,7 @@ def main(argv=None):
     setup_body = {
         "project": args.project,
         "schema": label_config,
-        "extra_params": json.dumps(extra_args),
+        "extra_params": json.dumps(extra_params),
     }
     predict_body = build_request(args.project, image_url, width, height,
                                  context, label_config)
@@ -538,7 +538,7 @@ def main(argv=None):
 
     if args.request_record:
         save_request_artifacts(args.request_record, image_path, prompt_shape,
-                               extra_args, predict_body,
+                               extra_params, predict_body,
                                args.probe_fullframe_artifact_resize)
     if args.intermediates:
         save_intermediates(args.intermediates, cached_image, output_format)

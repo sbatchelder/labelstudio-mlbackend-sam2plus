@@ -218,7 +218,7 @@ optionally post-process, and optionally return polygons instead of brush masks.
 
 `extra_params` are static per-project values. Label Studio sends them to the
 backend's `/setup` endpoint; for local testing `sam2plus-probe` does the same via
-`--extra-args` (see below). Unknown keys are logged as warnings and ignored.
+`--extra-params` (see below). Unknown keys are logged as warnings and ignored.
 
 ### Subpatching (`subpatching`)
 
@@ -278,8 +278,8 @@ Post-processing runs in order: `mask_size_threshold` → `fill_holes` →
 }
 ```
 
-Ready-made files: `examples/02-extra_args/basic-rle.json` (patch + brush) and
-`examples/02-extra_args/basic-polygon.json` (patch + polygon).
+Ready-made files: `examples/02-extra_params/basic-rle.json` (patch + brush) and
+`examples/02-extra_params/basic-polygon.json` (patch + polygon).
 
 
 ## Testing with `sam2plus-probe`
@@ -291,14 +291,14 @@ the prediction JSON to stdout.
 
 ```bash
 .venv/bin/python -m pip install -e ".[test]"
-.venv/bin/sam2plus-probe [IMAGE] [--bbox X Y W H] [--extra-args FILE] [--url URL]
+.venv/bin/sam2plus-probe [IMAGE] [--bbox X Y W H] [--extra-params FILE] [--url URL]
 ```
 
 - `IMAGE` and `--bbox` default to a bundled example (COCO object 69), so
   `sam2plus-probe` with no arguments runs end to end.
 - `--bbox X Y W H` — four **integers** are read as pixel `top-left + width/height`;
   four **decimals** as relative `center + width/height` (fractions of the image).
-- `--extra-args FILE` — a JSON file of `extra_params` (see above), applied via
+- `--extra-params FILE` — a JSON file of `extra_params` (see above), applied via
   `/setup` before `/predict`. Omit it for stock (full-image brush) behavior.
 - `--url` — backend base URL (default `http://localhost:22202`).
 - `--config FILE` — YAML config containing the same CLI option names.

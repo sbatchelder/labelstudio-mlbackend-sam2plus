@@ -26,7 +26,7 @@ def test_regular_rectangle_prompt_returns_brush_rle(regular_project):
             "type": "rectanglelabels",
             "value": {
                 "x": 45.0, "y": 45.0, "width": 6.0, "height": 6.0,
-                "rectanglelabels": ["defect"],
+                "rectanglelabels": ["probe"],
             },
         }],
     }
@@ -46,4 +46,4 @@ def test_regular_rectangle_prompt_returns_brush_rle(regular_project):
     assert region["original_height"] == IMAGE_H
     assert region["value"]["format"] == "rle"
     assert isinstance(region["value"]["rle"], list) and region["value"]["rle"]
-    assert region["value"]["brushlabels"] == ["defect"]
+    assert region["value"]["brushlabels"] == ["probe"]

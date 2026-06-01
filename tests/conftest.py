@@ -19,9 +19,9 @@ ML_BACKEND_URL = os.environ.get("ML_BACKEND_URL", "http://localhost:22202").rstr
 CACHE_DIR = Path(os.environ.get("CACHE_DIR", REPO_ROOT / "data" / "cache"))
 BOOT_TIMEOUT = float(os.environ.get("ML_BACKEND_BOOT_TIMEOUT", "300"))
 
-EXAMPLE_IMAGE = REPO_ROOT / "examples" / "117_U1553D_4R_2W_16-21cm_N1of1_Z200x.jpg"
+EXAMPLE_IMAGE = REPO_ROOT / "examples" / "01-data" / "ichthyoliths.jpg"
 IMAGE_W, IMAGE_H = 10246, 9818
-IMAGE_URL = "http://sam2bigimg.test/117_U1553D_4R_2W_16-21cm_N1of1_Z200x.jpg"
+IMAGE_URL = "http://sam2bigimg.test/ichthyoliths.jpg"
 
 MODEL_VERSION = "0.0.2"
 REGULAR_PROJECT = "tests-regular"
@@ -32,16 +32,16 @@ LABEL_CONFIG = """
 <View>
   <Image name="image" value="$image" zoom="true"/>
   <BrushLabels name="tag" toName="image">
-    <Label value="defect"/>
+    <Label value="probe"/>
   </BrushLabels>
   <PolygonLabels name="tag2" toName="image">
-    <Label value="defect"/>
+    <Label value="probe"/>
   </PolygonLabels>
   <KeyPointLabels name="tag3" toName="image" smart="true">
-    <Label value="defect"/>
+    <Label value="probe"/>
   </KeyPointLabels>
   <RectangleLabels name="tag4" toName="image" smart="true">
-    <Label value="defect"/>
+    <Label value="probe"/>
   </RectangleLabels>
 </View>
 """
@@ -122,7 +122,7 @@ def regular_project(backend, seeded_image):
 
 @pytest.fixture()
 def bigimg_project(backend, seeded_image):
-    resp = post_setup(BIGIMG_PROJECT, {"crop_size": 1024})
+    resp = post_setup(BIGIMG_PROJECT, {"subpatching": {"patch_size": 1024}})
     assert resp.status_code == 200, resp.text
     return BIGIMG_PROJECT
 
@@ -132,13 +132,17 @@ def bigimg_polygon_project(backend, seeded_image):
     resp = post_setup(
         BIGIMG_POLYGON_PROJECT,
         {
-            "crop_size": 1024,
+            "subpatching": {"patch_size": 1024},
             "postprocess": {
                 "mask_size_threshold": 1,
                 "fill_holes": True,
                 "dilate": 0.05,
             },
-            "as_polygon": {"epsilon": 0.003, "max_points": 50},
+            "return_format": {
+                "type": "PolygonLabel",
+                "epsilon": 0.003,
+                "max_points": 50,
+            },
         },
     )
     assert resp.status_code == 200, resp.text

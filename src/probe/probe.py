@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Submit one prompt to a running SAM2BigImg backend."""
+"""Submit one prompt to a running SAM2Plus backend."""
 
 import argparse
 import hashlib
@@ -88,7 +88,7 @@ def _load_json_object(path):
 
 def _parser():
     parser = argparse.ArgumentParser(
-        description="Submit an image + prompt to a SAM2BigImg backend.",
+        description="Submit an image + prompt to a SAM2Plus backend.",
     )
     parser.add_argument("image", nargs="?", default=argparse.SUPPRESS)
     parser.add_argument("--config", default=None,
@@ -223,7 +223,7 @@ def point_percent_to_pixels(point, width, height):
 
 def seed_image_into_cache(image_path, cache_dir):
     stem = Path(image_path).stem
-    url = f"http://sam2bigimg.probe/{uuid4().hex}/{stem}.jpg"
+    url = f"http://sam2plus.probe/{uuid4().hex}/{stem}.jpg"
     digest = hashlib.md5(url.encode(), usedforsecurity=False).hexdigest()[:8]
     cache_name = f"{digest}__{os.path.basename(urlparse(url).path)}"
     dest = cache_dir / cache_name

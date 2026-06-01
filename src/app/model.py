@@ -142,14 +142,14 @@ def parse_extra_params(extra_params):
     return patch_kwargs, return_format, postprocess_cfg
 
 
-class SAM2_BigImg(LabelStudioMLBase):
+class SAM2Plus(LabelStudioMLBase):
     """Custom ML Backend model
     """
 
     def setup(self):
         """Configure any parameters of your model here
         """
-        logging.info('SAM2_BigImg setup')
+        logging.info('SAM2Plus setup')
         self.set("model_version", "0.0.2")
 
     def _prediction_response(self, results, probs):

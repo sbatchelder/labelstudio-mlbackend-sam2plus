@@ -16,7 +16,7 @@ image: "/guide/ml_tutorials/sam2-images.png"
 ---
 -->
 
-# SAM2BigImg
+# SAM2Plus
 
 This is a modification of the [Labelstudio SAM2 ml-backend](https://github.com/HumanSignal/label-studio-ml-backend/tree/master/label_studio_ml/examples/segment_anything_2_image). It can be used to interactively add mask (brush) annotations on Labelstudio. 
 
@@ -29,7 +29,7 @@ Without this, masks for small objects in large scenes loose definition, since SA
 - mask cleanup: ~~single-mask, fill gaps, grow edges~~ done via `postprocess`; smooth edges still open
 - ~~allow multiple labelstudio instances to use endpoint~~ — done via `multi-compose.yml`
 - ~~Labelstudio Host, API Key, host-port, target GPU as .env variables~~ — done via `envs/`
-- ~~easy endpoint testing from within project but outside running container~~ — done: `sam2bigimg-probe`
+- ~~easy endpoint testing from within project but outside running container~~ - done: `sam2plus-probe`
 
 ## Deployment
 
@@ -73,14 +73,14 @@ curl http://localhost:22202/health
 ## Initial Project Setup Notes
 
 ```
-mkdir SAM2BigImg && cd SAM2BigImg
+mkdir SAM2Plus && cd SAM2Plus
 git init
 git remote add upstream https://github.com/HumanSignal/label-studio-ml-backend.git
 git fetch upstream master
 git archive upstream/master label_studio_ml/examples/segment_anything_2_image | tar -x --strip-components=3
 git add -A && git commit -m "init sam2 ml-backend"
 ```
-Then update `model.py`, incl. renaming for `class NewModel` to `class SAM2_BigImg` and subsequent changes in `_wsgi.py`. 
+Then update `model.py`, incl. renaming for `class NewModel` to `class SAM2Plus` and subsequent changes in `_wsgi.py`. 
 
 
 ## Labeling configuration
@@ -213,11 +213,11 @@ keeps the real values.
 With **no** `extra_params` the backend behaves exactly like the stock
 [SAM2 image backend](https://github.com/HumanSignal/label-studio-ml-backend/tree/master/label_studio_ml/examples/segment_anything_2_image):
 the full image is sent to SAM2 and a brush (RLE) mask is returned. Supplying
-**any** `extra_params` switches on the BigImg pipeline — patch around the prompt,
+**any** `extra_params` switches on the enhanced pipeline - patch around the prompt,
 optionally post-process, and optionally return polygons instead of brush masks.
 
 `extra_params` are static per-project values. Label Studio sends them to the
-backend's `/setup` endpoint; for local testing `sam2bigimg-probe` does the same via
+backend's `/setup` endpoint; for local testing `sam2plus-probe` does the same via
 `--extra-args` (see below). Unknown keys are logged as warnings and ignored.
 
 ### Subpatching (`subpatching`)
@@ -282,20 +282,20 @@ Ready-made files: `examples/02-extra_args/basic-rle.json` (patch + brush) and
 `examples/02-extra_args/basic-polygon.json` (patch + polygon).
 
 
-## Testing with `sam2bigimg-probe`
+## Testing with `sam2plus-probe`
 
-`sam2bigimg-probe` submits one image and one bounding box to a running backend
+`sam2plus-probe` submits one image and one bounding box to a running backend
 — no Label Studio server required. It re-encodes the image into the backend's
 bind-mounted cache so `/predict` resolves it offline. By default it writes only
 the prediction JSON to stdout.
 
 ```bash
 .venv/bin/python -m pip install -e ".[test]"
-.venv/bin/sam2bigimg-probe [IMAGE] [--bbox X Y W H] [--extra-args FILE] [--url URL]
+.venv/bin/sam2plus-probe [IMAGE] [--bbox X Y W H] [--extra-args FILE] [--url URL]
 ```
 
 - `IMAGE` and `--bbox` default to a bundled example (COCO object 69), so
-  `sam2bigimg-probe` with no arguments runs end to end.
+  `sam2plus-probe` with no arguments runs end to end.
 - `--bbox X Y W H` — four **integers** are read as pixel `top-left + width/height`;
   four **decimals** as relative `center + width/height` (fractions of the image).
 - `--extra-args FILE` — a JSON file of `extra_params` (see above), applied via
@@ -308,8 +308,8 @@ the prediction JSON to stdout.
 Artifact output is opt-in:
 
 ```bash
-sam2bigimg-probe --config examples/00-probe_configs/ichthyo-rle.yaml
-sam2bigimg-probe --config examples/00-probe_configs/ichthyo-polygon.yaml
+sam2plus-probe --config examples/00-probe_configs/ichthyo-rle.yaml
+sam2plus-probe --config examples/00-probe_configs/ichthyo-polygon.yaml
 ```
 
 With `--request-record`, `--intermediates`, `--output-img`, and `--output examples`,
@@ -319,7 +319,7 @@ artifacts are written into matching request folders:
 - `examples/04-intermediates/<request-name>/` — backend patch/mask intermediate graphics.
 - `examples/05-outputs/<request-name>/` — returned `prediction.json`, full-frame prompt/prediction overlay, and tight prediction crops.
 
-> `sam2bigimg-probe` applies `extra_params` with a `/setup` call and reads them back in
+> `sam2plus-probe` applies `extra_params` with a `/setup` call and reads them back in
 > the following `/predict` call, keyed by a shared project id. This only works
 > when the backend runs a **single worker** (`WORKERS=1`, as the env files set).
 

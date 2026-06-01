@@ -1,4 +1,4 @@
-"""Mask post-processing and polygon extraction for the SAM2_BigImg backend.
+"""Mask post-processing and polygon extraction for the SAM2Plus backend.
 
 Everything here operates in *crop* coordinates on a single binary mask -- the
 ~1024px SAM2 output, before it is mapped back onto the full image. Only OpenCV

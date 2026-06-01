@@ -1,4 +1,4 @@
-"""Shared HTTP integration-test helpers for SAM2_BigImg."""
+"""Shared HTTP integration-test helpers for SAM2Plus."""
 
 import hashlib
 import json
@@ -21,7 +21,7 @@ BOOT_TIMEOUT = float(os.environ.get("ML_BACKEND_BOOT_TIMEOUT", "300"))
 
 EXAMPLE_IMAGE = REPO_ROOT / "examples" / "01-data" / "ichthyoliths.jpg"
 IMAGE_W, IMAGE_H = 10246, 9818
-IMAGE_URL = "http://sam2bigimg.test/ichthyoliths.jpg"
+IMAGE_URL = "http://sam2plus.test/ichthyoliths.jpg"
 
 MODEL_VERSION = "0.0.2"
 REGULAR_PROJECT = "tests-regular"

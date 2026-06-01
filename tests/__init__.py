@@ -1,1 +1,1 @@
-"""SAM2BigImg tests."""
+"""SAM2Plus tests."""

@@ -3,9 +3,9 @@ requires = ["setuptools>=68", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "sam2bigimg"
+name = "sam2plus"
 version = "0.0.2"
-description = "SAM2 Label Studio ML backend for large-image interactive segmentation"
+description = "SAM2 Label Studio ML backend for large-image segmentation, return formats, and mask post-processing"
 requires-python = ">=3.11"
 dependencies = [
   "gunicorn==22.0.0",
@@ -23,7 +23,7 @@ test = [
 
 [project.scripts]
 probe = "probe.probe:main"
-sam2bigimg-probe = "probe.probe:main"
+sam2plus-probe = "probe.probe:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

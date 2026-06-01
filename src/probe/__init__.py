@@ -1,1 +1,1 @@
-"""Probe CLI for SAM2BigImg."""
+"""Probe CLI for SAM2Plus."""

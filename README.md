@@ -22,20 +22,11 @@ This is a modification of the [Labelstudio SAM2 ml-backend](https://github.com/H
 
 This fork enhances the stock SAM2 ml-backend in several ways:
 
-1. enables server-side mask post-process cleanup operations
-2. enables compatibility with annotation types beyond BrushLabels
-3. enables efficient inferencing on small objects in very large input images
-4. adds a compose configuration streamlining deployment of this ml-backend for multiple labelstudio instances
-5. allows local usage of the ml-backend without a labelstudio instance (eg for testing)
-
-Item 3 is the headline capability. When an image arrives, SAM2Plus crops an area
-around the annotator's point/bounding-box prompt, runs SAM2 on that crop, and
-remaps the resulting mask back to the original image's coordinates before
-returning it to Label Studio. Without this, small objects in large scenes lose
-definition, because SAM2 internally resizes every input to a fixed 1024×1024;
-cropping first keeps the object large within that window, preserving mask
-resolution. See [Subpatching](#subpatching-subpatching) for the knobs that
-control this behavior.
+1. enables server-side mask post-process cleanup operations ([post-processing](#post-processing-postprocess))
+2. enables compatibility with annotation types beyond BrushLabels ([return-format](#return-format-return-format))
+3. enables efficient inferencing on small objects in very large input images ([subpatching](#subpatching-subpatching))
+4. adds a compose configuration streamlining deployment of this ml-backend for multiple labelstudio instances ([multi-target deployment](#multi-target))
+5. allows local usage of the ml-backend without a labelstudio instance (eg for testing) ([probe](#testing-with-sam2plus-probe))
 
 ## Installation
 
@@ -312,13 +303,17 @@ Post-processing runs in order: `mask-size-threshold` → `fill-holes` →
 
 ### Subpatching (`subpatching`)
 
-If `subpatching` is omitted, SAM2 receives the full image (after any
-`fullframe-resize`). When configured, a patch is cropped around the prompt and
-sent to SAM2 instead; the predicted geometry is mapped back to full-image
-coordinates before it is returned. This is the mechanism that keeps small
-objects sharp — see the 1024² note above. Patch options live under the
-top-level `subpatching` object and are forwarded to `CropMapper`
-(`seg_cropper.py`):
+When invoked, subpatching allows for high quality mask output even with very large input images.
+With `patch-size`, when an image arrives, SAM2Plus crops a
+patch around the annotator's point/bounding-box prompt, runs SAM2 on that patch,
+and remaps the resulting mask back to the original image's coordinates before
+returning it to Label Studio. Without this, small objects in large scenes lose
+definition, because SAM2 internally resizes every input to a fixed 1024×1024;
+cropping first keeps the object large within that view, preserving mask
+resolution. If `patch-size` is set to `1024`, then the prompted object will be 
+segmented at its native resolution. 
+
+In the case where a prompt is larger than the `patch-size`, by default the `patch-size` increases to accomodate the larger prompt (SAM2 input no longer native resolution, but likely still better than fullframe input). `allow-oversize` and `oversize-padding` controls this behavior. If the patch would have to grow past the (post-`fullframe-resize`) frame in either dimension to fit the prompt, subpatching is skipped for the given input prompt and the backend falls back to full-frame inference. If an input fullframe image is smaller than the patch-size, padding is applied around the fullframe image.
 
 | Key | Default | Meaning |
 |-----|---------|---------|
@@ -331,9 +326,7 @@ top-level `subpatching` object and are forwarded to `CropMapper`
 `patch-size` sets how large a region is cropped around the prompt; it does **not**
 sidestep SAM2's internal resize. The cropped patch is still rescaled to the
 1024² of the hiera config before encoding, so a 1024 `patch-size` feeds SAM2 a
-near-1:1 crop while a much larger `patch-size` is downscaled again inside SAM2.
-If the prompt region is too large to subpatch within the source image, the
-backend logs a warning and falls back to full-frame inference.
+near-1:1 crop while a much larger `patch-size` will be downscaled again inside SAM2.
 
 ### Example
 
@@ -364,7 +357,8 @@ package itself in a virtualenv:
 
 ```bash
 python -m venv .venv
-.venv/bin/python -m pip install -e ".[test]"
+source .venv/bin/activate
+python -m pip install -e ".[test]"
 ```
 
 `sam2plus-probe` submits one image and one prompt (bounding box or keypoint) to a

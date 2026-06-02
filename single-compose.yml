@@ -6,6 +6,12 @@ services:
     image: humansignal/ml-backend:v0
     build:
       context: .
+      args:
+        # Single-instance has no sam2-build helper to populate MODEL_STORE, so
+        # set BAKE_CHECKPOINTS=true (and skip the MODEL_STORE mount, which would
+        # shadow them) for a self-contained image; otherwise pre-populate
+        # MODEL_STORE yourself. See Dockerfile.
+        BAKE_CHECKPOINTS: ${BAKE_CHECKPOINTS:-false}
 
     # Conservative: only restart on crashes, and give up after a few tries so a
     # broken config (e.g. missing checkpoint) doesn't loop forever.
@@ -51,4 +57,4 @@ services:
       # Shared, read-only SAM2 checkpoint store. MUST be populated before first
       # `up` -- an empty dir here shadows the checkpoints baked into the image.
       # One-time populate: see README.
-      - "${MODEL_STORE:-./data/model-store}:/sam2/checkpoints:ro"
+      - "${MODEL_STORE:-./vols/model-store}:/sam2/checkpoints:ro"

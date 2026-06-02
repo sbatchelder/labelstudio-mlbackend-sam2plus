@@ -1,6 +1,7 @@
 FROM pytorch/pytorch:2.5.1-cuda12.4-cudnn9-runtime
 ARG DEBIAN_FRONTEND=noninteractive
 ARG TEST_ENV
+ARG BAKE_CHECKPOINTS=false
 
 WORKDIR /app
 
@@ -35,11 +36,17 @@ RUN --mount=type=cache,target=${PIP_CACHE_DIR},sharing=locked \
     pip install -e .
 
 # install segment-anything-2
-RUN cd / && git clone --depth 1 --branch main --single-branch https://github.com/facebookresearch/sam2.git
+RUN git clone --depth 1 --branch main --single-branch https://github.com/facebookresearch/sam2.git /sam2
 WORKDIR /sam2
 RUN --mount=type=cache,target=${PIP_CACHE_DIR},sharing=locked \
     pip3 install -e .
-RUN cd checkpoints && ./download_ckpts.sh
+
+# if ARGS BAKE_CHECKPOINTS=True, sam2 model files will be baked into the image (~ +5GB)
+#    In this case do NOT set a MODEL_STORE mount in compose file. It will shadow the baked in checkpoints
+# if ARGS BAKE_CHECKPOINTS=False, dockerfile will be much lighter,
+#    and MODEL_STORE volume with externally downloaded checkpoints will have to be set in compose file.
+RUN cp checkpoints/download_ckpts.sh /usr/local/bin/download-checkpoints.sh \
+    && if [ "$BAKE_CHECKPOINTS" = "true" ]; then cd checkpoints && ./download_ckpts.sh; fi
 
 WORKDIR /app
 

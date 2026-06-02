@@ -19,15 +19,34 @@ x-instance: &instance
 
 services:
   sam2-build:
-    # Ephemeral helper: builds and names the shared image, then exits 0 so
-    # brick/ichthyolith (which gate on its successful completion) can base off
-    # the tag. Self-terminating -- it does not linger after the build.
+    # Ephemeral helper: builds and names the shared image, then populates the
+    # MODEL_STORE volume with the SAM2 checkpoints before exiting 0 so
+    # brick/ichthyolith (which gate on its successful completion) only start
+    # once the checkpoints exist. Self-terminating -- it does not linger.
     image: *sam2-image
     build:
       context: .
+      args:
+        # false (default) = slim image, checkpoints downloaded below into
+        # MODEL_STORE. true = bake them into the image (run without a
+        # MODEL_STORE mount, which would otherwise shadow them).
+        BAKE_CHECKPOINTS: ${BAKE_CHECKPOINTS:-false}
     entrypoint: ["/bin/sh", "-lc"]
-    command: ["echo built ${SAM2_IMAGE:-sam2plus:local}"]
+    # Download into the rw-mounted MODEL_STORE only if the configured
+    # checkpoint is missing, so repeat `up`s are fast. The script (copied to
+    # PATH in the Dockerfile) fetches all four hiera sizes.
+    command:
+      - |
+        cd /sam2/checkpoints
+        if [ -f "${MODEL_CHECKPOINT:-sam2.1_hiera_large.pt}" ]; then
+          echo "✓ ${MODEL_CHECKPOINT:-sam2.1_hiera_large.pt} present -- skipping checkpoint download"
+        else
+          echo "downloading SAM2 checkpoints into MODEL_STORE…"
+          download-checkpoints.sh
+        fi
     restart: "no"
+    volumes:
+      - "${MODEL_STORE:-./vols/model-store}:/sam2/checkpoints:rw"
 
   brick:
     <<: *instance
@@ -38,9 +57,9 @@ services:
     ports:
       - "22203:9090"
     volumes:
-      - "./data/brick/server:/data"
-      - "./data/brick/cache:/cache"
-      - "${MODEL_STORE:-./data/model-store}:/sam2/checkpoints:ro"
+      - "./vols/brick/server:/data"
+      - "./vols/brick/cache:/cache"
+      - "${MODEL_STORE:-./vols/model-store}:/sam2/checkpoints:ro"
 
   ichthyolith:
     <<: *instance
@@ -51,6 +70,6 @@ services:
     ports:
       - "22202:9090"
     volumes:
-      - "./data/ichthyolith/server:/data"
-      - "./data/ichthyolith/cache:/cache"
-      - "${MODEL_STORE:-./data/model-store}:/sam2/checkpoints:ro"
+      - "./vols/ichthyolith/server:/data"
+      - "./vols/ichthyolith/cache:/cache"
+      - "${MODEL_STORE:-./vols/model-store}:/sam2/checkpoints:ro"

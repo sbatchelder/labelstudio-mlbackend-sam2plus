@@ -2,6 +2,7 @@
 __pycache__
 *.egg-info/
 data/
+vols/
 .venv
 probe_out/
 

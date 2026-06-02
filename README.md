@@ -54,11 +54,16 @@ Studio guide on
    command, which you can run yourself after a local install (see
    [Testing with `sam2plus-probe`](#testing-with-sam2plus-probe)).
 
-2. **Provide SAM2 checkpoints.** Populate `data/model-store/` with the SAM2
-   checkpoints before the first run, or point `MODEL_STORE` (in the root `.env`
-   or a target env) at an already-populated checkpoint directory. It is mounted
-   read-only at `/sam2/checkpoints`; an empty dir here shadows the checkpoints
-   baked into the image.
+2. **Provide SAM2 checkpoints.** For the multi-target deployment this is
+   automatic: the `sam2-build` service downloads all four SAM2 checkpoints into
+   the `MODEL_STORE` volume on first `up` (and skips the download on later runs
+   if the configured `MODEL_CHECKPOINT` is already there), so `brick`/`ichthyolith`
+   only start once the checkpoints exist.
+
+   To supply them yourself instead — for the single-instance compose, or to
+   reuse an existing checkpoint set — populate `./vols/model-store/` before the
+   first run, or point `MODEL_STORE` (in the root `.env` or a target env) at an
+   already-populated directory. It is mounted read-only at `/sam2/checkpoints`.
 
 3. **Create a target env file.** Each Label Studio instance the backend serves
    gets its own `envs/<target>.env`. Copy the template and edit it:
@@ -125,12 +130,15 @@ Run the non-local targets together from one shared image. Since `compose.yml` is
 the default file and the root `.env` loads automatically, no flags are needed:
 
 ```bash
-docker compose up -d --build sam2-build brick ichthyolith
+docker compose up -d brick ichthyolith
 ```
 
-`sam2-build` builds the shared image and exits cleanly; `brick` and
-`ichthyolith` reference that image with their own ports, cache volumes, and
-Label Studio settings.
+The `depends_on` chain pulls in `sam2-build`, which builds the shared image and
+downloads the SAM2 checkpoints into `MODEL_STORE` (only if `MODEL_CHECKPOINT` is
+missing), then exits cleanly. `brick` and `ichthyolith` gate on its successful
+completion — so the **first** `up` blocks while the checkpoints download (a few
+minutes); later runs skip it and start immediately. Each instance reuses the
+shared image with its own port, cache volume, and Label Studio settings.
 
 
 ## Labeling configuration

@@ -38,8 +38,8 @@ Studio guide on
 1. **Clone the repository.**
 
    ```bash
-   git clone https://github.com/sbatchelder/labelstudio-mlbackend-SAM2Plus.git
-   cd labelstudio-mlbackend-SAM2Plus
+   git clone https://github.com/sbatchelder/labelstudio-mlbackend-sam2plus.git sam2plus
+   cd sam2plus
    ```
 
 2. **Provide SAM2 checkpoints.** Populate `data/model-store/` with the SAM2

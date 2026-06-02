@@ -303,17 +303,18 @@ Post-processing runs in order: `mask-size-threshold` → `fill-holes` →
 
 ### Subpatching (`subpatching`)
 
-When invoked, subpatching allows for high quality mask output even with very large input images.
-With `patch-size`, when an image arrives, SAM2Plus crops a
-patch around the annotator's point/bounding-box prompt, runs SAM2 on that patch,
-and remaps the resulting mask back to the original image's coordinates before
-returning it to Label Studio. Without this, small objects in large scenes lose
-definition, because SAM2 internally resizes every input to a fixed 1024×1024;
-cropping first keeps the object large within that view, preserving mask
-resolution. If `patch-size` is set to `1024`, then the prompted object will be 
-segmented at its native resolution. 
+Subpatching produces high-quality masks even on very large input images. When an
+image arrives, SAM2Plus crops a `patch-size` patch around the annotator's
+point/bounding-box prompt, runs SAM2 on that patch, and remaps the resulting mask
+back to the original image's coordinates before returning it to Label Studio.
 
-In the case where a prompt is larger than the `patch-size`, by default the `patch-size` increases to accomodate the larger prompt (SAM2 input no longer native resolution, but likely still better than fullframe input). `allow-oversize` and `oversize-padding` controls this behavior. If the patch would have to grow past the (post-`fullframe-resize`) frame in either dimension to fit the prompt, subpatching is skipped for the given input prompt and the backend falls back to full-frame inference. If an input fullframe image is smaller than the patch-size, padding is applied around the fullframe image.
+Without this, small objects in large scenes lose definition, because SAM2
+internally resizes every input to a fixed 1024×1024; cropping first keeps the
+object large within that view, preserving mask resolution. At the default
+`patch-size` of `1024` the crop is fed to SAM2 at essentially 1:1, so an object
+that fits the patch is segmented at its native resolution.
+
+In the case where a prompt is larger than the `patch-size`, by default the `patch-size` increases to accommodate the larger prompt (SAM2 input no longer native resolution, but likely still better than fullframe input). `allow-oversize` and `oversize-padding` control this behavior. If the patch would have to grow past the (post-`fullframe-resize`) frame in either dimension to fit the prompt, subpatching is skipped for the given input prompt and the backend falls back to full-frame inference. If an input fullframe image is smaller than the patch-size, padding is applied around the fullframe image.
 
 | Key | Default | Meaning |
 |-----|---------|---------|
@@ -410,7 +411,7 @@ sam2plus-probe --config examples/00-probe_configs/ichthyo-keypoint-rle.yaml
 ```
 
 The `--request-record`, `--intermediates`, `--output` / `-o`, and
-`--output-img` flags each take an optional directory (default
+`--output-imgs` flags each take an optional directory (default
 `probe_out/...`; the bundled configs above redirect them under `examples/`).
 `${name}` in a path expands to the request name. They populate, respectively:
 
@@ -420,7 +421,7 @@ The `--request-record`, `--intermediates`, `--output` / `-o`, and
 
 > `sam2plus-probe` applies `extra_params` with a `/setup` call and reads them back in
 > the following `/predict` call, keyed by a shared project id. This only works
-> when the backend runs a **single worker** (`WORKERS=1`, as the env files set).
+> when the backend runs a **single worker** (`WORKERS=1`, as `BASE.env` sets).
 
 Automated API tests live under `tests/`:
 

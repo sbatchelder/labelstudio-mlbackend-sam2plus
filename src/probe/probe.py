@@ -136,7 +136,7 @@ def _parser():
                         default=argparse.SUPPRESS, help="directory for intermediate patch graphics")
     parser.add_argument("--output", "-o", nargs="?", const="probe_out/05-outputs/${name}",
                         default=argparse.SUPPRESS, help="directory for prediction.json")
-    parser.add_argument("--output-imgs", "--output-img", nargs="?",
+    parser.add_argument("--output-imgs", nargs="?",
                         const="probe_out/05-outputs/${name}", default=argparse.SUPPRESS,
                         help="directory for output image artifacts")
     return parser

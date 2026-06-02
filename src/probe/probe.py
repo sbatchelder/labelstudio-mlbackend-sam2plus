@@ -19,7 +19,7 @@ from PIL import Image, ImageDraw
 Image.MAX_IMAGE_PIXELS = None
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-DEFAULT_URL = os.environ.get("ML_BACKEND_URL", "http://localhost:22202")
+DEFAULT_URL = os.environ.get("ML_BACKEND_URL", "http://localhost:22201")
 DEFAULT_CACHE_DIR = REPO_ROOT / "data" / "cache"
 DEFAULT_IMAGE = REPO_ROOT / "examples" / "01-data" / "ichthyoliths.jpg"
 DEFAULT_PROMPT = {

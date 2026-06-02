@@ -15,7 +15,7 @@ from PIL import Image
 Image.MAX_IMAGE_PIXELS = None
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-ML_BACKEND_URL = os.environ.get("ML_BACKEND_URL", "http://localhost:22202").rstrip("/")
+ML_BACKEND_URL = os.environ.get("ML_BACKEND_URL", "http://localhost:22201").rstrip("/")
 CACHE_DIR = Path(os.environ.get("CACHE_DIR", REPO_ROOT / "data" / "cache"))
 BOOT_TIMEOUT = float(os.environ.get("ML_BACKEND_BOOT_TIMEOUT", "300"))
 

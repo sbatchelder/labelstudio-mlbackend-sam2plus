@@ -1,31 +1,40 @@
+# Shared base for the real instances: same image, GPU reservation, and a
+# dependency on the ephemeral build helper completing. The image tag is
+# anchored here so sam2-build can reference it too.
+x-instance: &instance
+  image: &sam2-image ${SAM2_IMAGE:-sam2plus:local}
+  restart: unless-stopped
+  depends_on:
+    sam2-build:
+      condition: service_completed_successfully
+  deploy:
+    resources:
+      reservations:
+        devices:
+          - driver: nvidia
+            device_ids: ['${HOST_GPU:-0}']
+            capabilities: [ gpu ]
+  environment:
+    - MODEL_DIR=/data/models
+
 services:
   sam2-build:
-    image: ${SAM2_IMAGE:-sam2plus:local}
+    # Ephemeral helper: builds and names the shared image, then exits 0 so
+    # brick/ichthyolith (which gate on its successful completion) can base off
+    # the tag. Self-terminating -- it does not linger after the build.
+    image: *sam2-image
     build:
       context: .
-      args:
-        TEST_ENV: False
     entrypoint: ["/bin/sh", "-lc"]
     command: ["echo built ${SAM2_IMAGE:-sam2plus:local}"]
+    restart: "no"
 
   brick:
+    <<: *instance
     container_name: SAM2Plus-brick
-    image: ${SAM2_IMAGE:-sam2plus:local}
-    depends_on:
-      sam2-build:
-        condition: service_completed_successfully
     env_file:
-      - envs/MULTI.env
+      - envs/DEFAULT.env
       - envs/brick.env
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              device_ids: ['${HOST_GPU:-0}']
-              capabilities: [ gpu ]
-    environment:
-      - MODEL_DIR=/data/models
     ports:
       - "22203:9090"
     volumes:
@@ -34,23 +43,11 @@ services:
       - "${MODEL_STORE:-./data/model-store}:/sam2/checkpoints:ro"
 
   ichthyolith:
+    <<: *instance
     container_name: SAM2Plus-ichthyolith
-    image: ${SAM2_IMAGE:-sam2plus:local}
-    depends_on:
-      sam2-build:
-        condition: service_completed_successfully
     env_file:
-      - envs/MULTI.env
+      - envs/DEFAULT.env
       - envs/ichthyolith.env
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              device_ids: ['${HOST_GPU:-0}']
-              capabilities: [ gpu ]
-    environment:
-      - MODEL_DIR=/data/models
     ports:
       - "22202:9090"
     volumes:

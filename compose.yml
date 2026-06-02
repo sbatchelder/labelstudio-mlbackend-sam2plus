@@ -6,8 +6,10 @@ services:
     image: humansignal/ml-backend:v0
     build:
       context: .
-      args:
-        TEST_ENV: False
+
+    # Conservative: only restart on crashes, and give up after a few tries so a
+    # broken config (e.g. missing checkpoint) doesn't loop forever.
+    restart: on-failure:3
 
     deploy:
       resources:
@@ -31,8 +33,8 @@ services:
       # compute device
       - DEVICE=${DEVICE:-cuda}
       # SAM2 model config and checkpoint
-      - MODEL_CONFIG=${MODEL_CONFIG:-configs/sam2.1/sam2.1_hiera_l.yaml}
-      - MODEL_CHECKPOINT=${MODEL_CHECKPOINT:-sam2.1_hiera_large.pt}
+      - MODEL_CONFIG=${MODEL_CONFIG:-configs/sam2.1/sam2.1_hiera_t.yaml}
+      - MODEL_CHECKPOINT=${MODEL_CHECKPOINT:-sam2.1_hiera_tiny.pt}
       # Label Studio instance this container serves
       - LABEL_STUDIO_URL=${LABEL_STUDIO_URL:?set LABEL_STUDIO_URL in envs/<target>.env}
       - LABEL_STUDIO_API_KEY=${LABEL_STUDIO_API_KEY:?set LABEL_STUDIO_API_KEY in envs/<target>.env}

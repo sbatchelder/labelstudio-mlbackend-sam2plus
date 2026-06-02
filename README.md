@@ -78,6 +78,16 @@ Studio guide on
    overrides whatever it sets. API-key values are redacted on stage by the
    `envsecrets` filter — see [Secret Redaction](#secret-redaction).
 
+   - on a fresh clone, you will need to re-enter Secrets. To avoid git picking up changes do the following
+   ```bash
+   # add secrets back in here
+   git status  # shows the change
+   git config filter.envsecrets.clean 'python3 scripts/clean-env-secrets.py'
+   git config filter.envsecrets.smudge cat
+   git add --renormalize .
+   git status  # does not show the change
+   ``` 
+
 4. **Launch the backend.** The root `.env` loads automatically as the base; pass
    the target env on the CLI:
 

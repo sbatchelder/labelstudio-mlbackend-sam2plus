@@ -33,7 +33,7 @@ services:
     <<: *instance
     container_name: SAM2Plus-brick
     env_file:
-      - envs/DEFAULT.env
+      - envs/BASE.env
       - envs/brick.env
     ports:
       - "22203:9090"
@@ -46,7 +46,7 @@ services:
     <<: *instance
     container_name: SAM2Plus-ichthyolith
     env_file:
-      - envs/DEFAULT.env
+      - envs/BASE.env
       - envs/ichthyolith.env
     ports:
       - "22202:9090"

@@ -1,54 +1,56 @@
+# Shared base for the real instances: same image, GPU reservation, and a
+# dependency on the ephemeral build helper completing. The image tag is
+# anchored here so sam2-build can reference it too.
+x-instance: &instance
+  image: &sam2-image ${SAM2_IMAGE:-sam2plus:local}
+  restart: unless-stopped
+  depends_on:
+    sam2-build:
+      condition: service_completed_successfully
+  deploy:
+    resources:
+      reservations:
+        devices:
+          - driver: nvidia
+            device_ids: ['${HOST_GPU:-0}']
+            capabilities: [ gpu ]
+  environment:
+    - MODEL_DIR=/data/models
 
 services:
-  ml-backend:
-    # Set per-instance in envs/<target>.env so two instances don't collide.
-    container_name: ${CONTAINER_NAME:?set CONTAINER_NAME in envs/<target>.env}
-    image: humansignal/ml-backend:v0
+  sam2-build:
+    # Ephemeral helper: builds and names the shared image, then exits 0 so
+    # brick/ichthyolith (which gate on its successful completion) can base off
+    # the tag. Self-terminating -- it does not linger after the build.
+    image: *sam2-image
     build:
       context: .
+    entrypoint: ["/bin/sh", "-lc"]
+    command: ["echo built ${SAM2_IMAGE:-sam2plus:local}"]
+    restart: "no"
 
-    # Conservative: only restart on crashes, and give up after a few tries so a
-    # broken config (e.g. missing checkpoint) doesn't loop forever.
-    restart: on-failure:3
-
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              device_ids: ['${HOST_GPU:-0}']
-              capabilities: [ gpu ]
-
-    environment:
-      # basic auth for the model server (blank = disabled)
-      - BASIC_AUTH_USER=${BASIC_AUTH_USER:-}
-      - BASIC_AUTH_PASS=${BASIC_AUTH_PASS:-}
-      # log level for the model server
-      - LOG_LEVEL=${LOG_LEVEL:-INFO}
-      # gunicorn workers / threads
-      - WORKERS=${WORKERS:-1}
-      - THREADS=${THREADS:-8}
-      # label_studio_ml model dir (sqlite cache.db lives here; container path)
-      - MODEL_DIR=/data/models
-      # compute device
-      - DEVICE=${DEVICE:-cuda}
-      # SAM2 model config and checkpoint
-      - MODEL_CONFIG=${MODEL_CONFIG:-configs/sam2.1/sam2.1_hiera_t.yaml}
-      - MODEL_CHECKPOINT=${MODEL_CHECKPOINT:-sam2.1_hiera_tiny.pt}
-      # Label Studio instance this container serves
-      - LABEL_STUDIO_URL=${LABEL_STUDIO_URL:?set LABEL_STUDIO_URL in envs/<target>.env}
-      - LABEL_STUDIO_API_KEY=${LABEL_STUDIO_API_KEY:?set LABEL_STUDIO_API_KEY in envs/<target>.env}
-
+  brick:
+    <<: *instance
+    container_name: SAM2Plus-brick
+    env_file:
+      - .env
+      - envs/brick.env
     ports:
-      - "${HOST_PORT:?set HOST_PORT in envs/<target>.env}:9090"
-
+      - "22203:9090"
     volumes:
-      # Per-instance server data (sqlite cache.db) and image cache. Give each
-      # instance its own dirs in envs/<target>.env so two never share a cache
-      # (cross-tenant leak). probe.py seeds images straight into CACHE_DIR.
-      - "${SERVER_DIR:?set SERVER_DIR in envs/<target>.env}:/data"
-      - "${CACHE_DIR:?set CACHE_DIR in envs/<target>.env}:/cache"
-      # Shared, read-only SAM2 checkpoint store. MUST be populated before first
-      # `up` -- an empty dir here shadows the checkpoints baked into the image.
-      # One-time populate: see README.
+      - "./data/brick/server:/data"
+      - "./data/brick/cache:/cache"
+      - "${MODEL_STORE:-./data/model-store}:/sam2/checkpoints:ro"
+
+  ichthyolith:
+    <<: *instance
+    container_name: SAM2Plus-ichthyolith
+    env_file:
+      - .env
+      - envs/ichthyolith.env
+    ports:
+      - "22202:9090"
+    volumes:
+      - "./data/ichthyolith/server:/data"
+      - "./data/ichthyolith/cache:/cache"
       - "${MODEL_STORE:-./data/model-store}:/sam2/checkpoints:ro"

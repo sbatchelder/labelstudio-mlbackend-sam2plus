@@ -55,7 +55,7 @@ Studio guide on
    [Testing with `sam2plus-probe`](#testing-with-sam2plus-probe)).
 
 2. **Provide SAM2 checkpoints.** Populate `data/model-store/` with the SAM2
-   checkpoints before the first run, or point `MODEL_STORE` (in `envs/BASE.env`
+   checkpoints before the first run, or point `MODEL_STORE` (in the root `.env`
    or a target env) at an already-populated checkpoint directory. It is mounted
    read-only at `/sam2/checkpoints`; an empty dir here shadows the checkpoints
    baked into the image.
@@ -69,14 +69,15 @@ Studio guide on
 
    Set at least `CONTAINER_NAME`, `HOST_PORT`, `SERVER_DIR`, `CACHE_DIR`,
    `LABEL_STUDIO_URL`, and `LABEL_STUDIO_API_KEY`. Shared defaults (image name,
-   device, model config, workers) live in `envs/BASE.env`; the target file
+   device, model config, workers) live in the root `.env`; the target file
    overrides whatever it sets. API-key values are redacted on stage by the
    `envsecrets` filter — see [Secret Redaction](#secret-redaction).
 
-4. **Launch the backend** with `envs/BASE.env` first and the target env second:
+4. **Launch the backend.** The root `.env` loads automatically as the base; pass
+   the target env on the CLI:
 
    ```bash
-   docker compose -f compose.yml --env-file envs/BASE.env --env-file envs/mytarget.env up -d --build
+   docker compose -f single-compose.yml --env-file envs/mytarget.env up -d --build
    ```
 
    See [Deployment](#deployment) below for single- vs multi-instance variants.
@@ -91,10 +92,11 @@ you only need a local virtualenv install; see
 
 ### Deployment
 
-Build and run with Docker Compose. The project has two compose entry points:
+Build and run with Docker Compose. The project has two compose entry points,
+and the root `.env` loads automatically for both (no `--env-file` needed for it):
 
-- `compose.yml` runs one backend instance using `envs/BASE.env` plus one target env.
-- `multi-compose.yml` runs the non-local targets together (`brick` and `ichthyolith`) from one shared image.
+- `compose.yml` (the default) runs the non-local targets together (`brick` and `ichthyolith`) from one shared image.
+- `single-compose.yml` runs one backend instance, taking one target env on the CLI.
 
 Validate a running backend (localhost instance port shown):
 
@@ -107,22 +109,23 @@ curl http://localhost:22201/health
 A local/probe instance:
 
 ```bash
-docker compose -f compose.yml --env-file envs/BASE.env --env-file envs/localhost.env up -d --build
+docker compose -f single-compose.yml --env-file envs/localhost.env up -d --build
 ```
 
 A production target:
 
 ```bash
-docker compose -f compose.yml --env-file envs/BASE.env --env-file envs/ichthyolith.env up -d --build
-docker compose -f compose.yml --env-file envs/BASE.env --env-file envs/brick.env up -d --build
+docker compose -f single-compose.yml --env-file envs/ichthyolith.env up -d --build
+docker compose -f single-compose.yml --env-file envs/brick.env up -d --build
 ```
 
 #### Multi-target
 
-Run the non-local targets together from one shared image:
+Run the non-local targets together from one shared image. Since `compose.yml` is
+the default file and the root `.env` loads automatically, no flags are needed:
 
 ```bash
-docker compose -f multi-compose.yml --env-file envs/BASE.env up -d --build sam2-build brick ichthyolith
+docker compose up -d --build sam2-build brick ichthyolith
 ```
 
 `sam2-build` builds the shared image and exits cleanly; `brick` and
@@ -180,7 +183,7 @@ Swap the tags to match other modalities — for example a `KeyPoint` prompt with
 ## Configuration
 Parameters are split across env files:
 
-- `envs/BASE.env` — shared defaults for both compose files, plus the shared image name.
+- `.env` (project root) — shared defaults for both compose files, plus the shared image name; loaded automatically by Compose.
 - `envs/example.env` — template for a new target instance; copy it (see [Installation](#installation)).
 - `envs/localhost.env`, `envs/brick.env`, `envs/ichthyolith.env` — target-specific ports, container names, cache dirs, GPU, and Label Studio URL/API key.
 
@@ -433,7 +436,7 @@ The `--request-record`, `--intermediates`, `--output` / `-o`, and
 
 > `sam2plus-probe` applies `extra_params` with a `/setup` call and reads them back in
 > the following `/predict` call, keyed by a shared project id. This only works
-> when the backend runs a **single worker** (`WORKERS=1`, as `BASE.env` sets).
+> when the backend runs a **single worker** (`WORKERS=1`, as the root `.env` sets).
 
 Automated API tests live under `tests/`:
 
